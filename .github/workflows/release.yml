@@ -30,8 +30,24 @@ jobs:
     permissions:
       contents: read
 
+  # HACS validation finds the card in a published release (dist/ is not committed): it cannot pass before the first
+  # release, so it only blocks the releases after it.
+  first:
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.check.outputs.first }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          n=$(gh api "repos/$REPO/releases?per_page=1" --jq length)
+          echo "first=$([ "$n" = 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
   release:
-    needs: [lint, validate, hacs]
+    needs: [lint, validate, hacs, first]
+    if: ${{ !cancelled() && needs.lint.result == 'success' && needs.validate.result == 'success' && (needs.hacs.result == 'success' || needs.first.outputs.release == 'true') }}
     runs-on: ubuntu-latest
     # Debian 12 container (Node 22 included): apt goes to the Debian mirrors, not the runner's Ubuntu ones,
     # which kept failing. The job runs as root, hence no sudo below.
