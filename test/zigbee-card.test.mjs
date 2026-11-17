@@ -232,15 +232,15 @@ test("the mini card: banner, status and chips; the health bar layout; the classi
   assert.match(html, /class="badge alert"><ha-icon icon="mdi:zigbee">/);
   assert.match(html, /class="name">Zigbee</);
   // The status in the pill right after the title (the icon's colour), not repeated in the statistics.
-  assert.match(html, /<div class="trow"><div class="name">Zigbee<\/div><span class="chip hpill alert" title="3 issues"><span class="dot"><\/span><span class="txt">3 issues<\/span><\/span><\/div>/);
-  assert.match(html, /<div class="stats"><span>42 devices<\/span><\/div>/);
+  assert.match(html, /<div class="trow"><div class="name">Zigbee<\/div><span class="chip hpill alert" title="3 issues" aria-label="3 issues"><span class="dot"><\/span><span class="txt">3 issues<\/span><\/span><\/div>/);
+  assert.match(html, /<div class="stats"[^>]*><span>42 devices<\/span><\/div>/);
   assert.match(html, /class="r ok"><ha-icon icon="mdi:router-wireless"><\/ha-icon><span>14 routers/);
   assert.match(html, /class="r alert pill">.*1 offline/s);
   assert.match(html, /class="r warn pill">.*1 low battery/s);
   assert.match(html, /aria-label="Show the full card"/);
   const ok = (await card(zb.ZigbeeMiniCard, {}, mockHass({ healthy: true })))._render();
   assert.match(ok, /class="badge ok"/);
-  assert.match(ok, /<span class="chip hpill ok" title="Healthy">/);
+  assert.match(ok, /<span class="chip hpill ok" title="Healthy" aria-label="Healthy">/);
   assert.match(ok, /42 online/);
   assert.match(ok, /LQI \d+/);
   const bar = (await card(zb.ZigbeeMiniCard, { mini_layout: "bar" }))._render();
@@ -250,7 +250,7 @@ test("the mini card: banner, status and chips; the health bar layout; the classi
   // Without the illustration: the badge, the title and the status in one line.
   const classic = (await card(zb.ZigbeeMiniCard, { illustration: false }))._render();
   assert.match(classic, /class="mini warn"/);
-  assert.match(classic, /class="title">Zigbee<\/span>\s*<span class="chip hpill alert" title="3 issues">/);
+  assert.match(classic, /class="title">Zigbee<\/span>\s*<span class="chip hpill alert" title="3 issues" aria-label="3 issues">/);
   assert.match(classic, /class="badge alert"/);
   assert.doesNotMatch(classic, /class="banner/);
 });
@@ -390,14 +390,17 @@ test("a French card is translated, numbers included", async () => {
 
 test("status pill on every header: full card, loading or unavailable, classic; banner style day and night", async () => {
   const full = (await card(zb.ZigbeeCard))._render();
-  assert.match(full, /<div class="trow"><div class="name">[^<]+<\/div><span class="chip hpill alert" title="3 issues">/);
+  assert.match(full, /<div class="trow"><div class="name">[^<]+<\/div><span class="chip hpill alert" title="3 issues" aria-label="3 issues">/);
   const classic = (await card(zb.ZigbeeCard, { illustration: false }))._render();
-  assert.match(classic, /<span class="chip hpill alert" title="3 issues">/);
+  assert.match(classic, /<span class="chip hpill alert" title="3 issues" aria-label="3 issues">/);
   const css = full;
   assert.match(css, /\.banner \.hpill \{ background: color-mix\(in srgb, var\(--c\) 18%, rgba\(255,255,255,\.78\)\); color: color-mix\(in srgb, var\(--c\) 45%, #0d2a45\); \}/);
   assert.match(css, /\.banner\.night \.hpill \{ background: color-mix\(in srgb, var\(--c\) 30%, rgba\(8,18,38,\.55\)\); color: color-mix\(in srgb, var\(--c\) 35%, #ffffff\); \}/);
-  assert.match(css, /\.hpill \{ flex: none; max-width: 51%; \}/);
-  assert.match(css, /@container \(max-width: 260px\) \{\s*\.trow \{ display: contents; \}/);
+  // Its place is measured (placePill): data-wrap puts it on its own line, data-dot keeps its dot alone; no width tier
+  assert.match(css, /\.hpill \{ flex: none; max-width: 100%; \}/);
+  assert.match(css, /\[data-wrap\] \.trow \{ display: contents; \}/);
+  assert.match(css, /\[data-dot\] \.hpill \.txt \{ position: absolute;/);
+  assert.doesNotMatch(css, /@container \(max-width: 260px\)/);
   // The mini card's buttons: the reference corner button, arrows, never a magnifier
   const mini = (await card(zb.ZigbeeMiniCard))._render();
   assert.match(mini, /icon="mdi:arrow-expand"/);

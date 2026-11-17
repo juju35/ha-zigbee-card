@@ -593,19 +593,22 @@ const STYLE = `
   .night .badge { background: rgba(255,255,255,.12); box-shadow: inset 0 0 0 1px rgba(255,255,255,.14); }
   .badge ha-icon { --mdc-icon-size: 24px; }
   .titles { flex: 1 1 0; min-width: 0; overflow: hidden; display: flex; flex-direction: column; }
-  /* The title row: the title gives way first (4 characters and its ellipsis kept), the pill 8 px after it keeps its
-     whole label, at most 51 % of the row. */
+  /* The title row: the pill 8 px after the title with its whole label, only when the whole title fits beside it
+     (measured by the card, see placePill); otherwise on its own line under the statistics (kept to one line); when
+     even that cuts its label or leaves the banner, and at 200 px or less, its dot alone. */
   .trow { display: flex; align-items: center; gap: 8px; min-width: 0; }
-  .trow .name { flex: 0 1 auto; min-width: 4ch; }
-  .hpill { flex: none; max-width: 51%; }
+  .trow .name { flex: 0 1 auto; min-width: 0; }
+  .hpill { flex: none; max-width: 100%; }
+  [data-wrap] .trow { display: contents; }
+  [data-wrap] .titles > .stats { order: 2; max-height: 16px; }
+  [data-wrap] .titles .hpill { order: 3; align-self: flex-start; margin-top: 2px; }
+  [data-wrap].mhd { flex-wrap: wrap; row-gap: 2px; }
+  [data-wrap].mhd .hpill { order: 3; }
+  [data-dot] .hpill { padding: 3px; }
+  [data-dot] .hpill .txt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .banner .hpill { background: color-mix(in srgb, var(--c) 18%, rgba(255,255,255,.78)); color: color-mix(in srgb, var(--c) 45%, #0d2a45); }
   .banner.night .hpill { background: color-mix(in srgb, var(--c) 30%, rgba(8,18,38,.55)); color: color-mix(in srgb, var(--c) 35%, #ffffff); }
-  /* A narrow card: the pill on its own line under the statistics (kept to one line); 200 px or less: its dot alone. */
-  @container (max-width: 260px) {
-    .trow { display: contents; }
-    .titles > .stats { order: 2; max-height: 16px; }
-    .titles .hpill { order: 3; align-self: flex-start; max-width: 100%; margin-top: 2px; }
-  }
+  /* 200 px or less: its dot alone. */
   @container (max-width: 200px) {
     .hpill { padding: 3px; }
     .hpill .txt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -777,10 +780,8 @@ const MINI_STYLE = `
   .body { flex: 1; min-width: 0; min-height: 40px; display: flex; flex-direction: column; justify-content: center; gap: 4px; }
   .body.bar { gap: 6px; }
   .mhd { display: flex; align-items: center; gap: 8px; }
-  .mhd .title { flex: 0 1 auto; min-width: 4ch; }
+  .mhd .title { flex: 0 1 auto; min-width: 0; }
   .mhd .zoom { margin-left: auto; }
-  /* A narrow mini card: the pill on its own line under the title. */
-  @container (max-width: 260px) { .mhd { flex-wrap: wrap; row-gap: 2px; } .mhd .hpill { order: 3; max-width: 100%; } }
   .title { flex: 1 1 0; min-width: 5ch; font-size: 16px; font-weight: 500; line-height: 1.25; color: var(--primary-text-color);
            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .mst { flex: 0 1 auto; min-width: 0; font-size: 11px; font-weight: 500; color: var(--c); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -832,6 +833,36 @@ const ZOOM_STYLE = `
 const TABS = ["devices", "map"];
 const FILTERS = ["all", "routers", "end_devices", "attention"];
 const FILTER_OF = { all: () => true, routers: (n) => n.role === "router", end_devices: (n) => n.role === "end", attention: (n) => !!n.issue };
+
+
+// The status pill's place, decided by measurement after each render and each new width (the same rule on every
+// card): on the title row, right after the title, only when the whole title and the pill's whole label fit there;
+// otherwise on its own line under the statistics (one line), the title whole on its row (cut only when it does not
+// fit alone). When the label is still cut there, or the text block leaves the banner or runs over its ground strip,
+// the pill keeps its dot alone, on the title row (its label stays in title and aria-label). A card of 200 px or less
+// shows the dot alone anyway (CSS), beside the title.
+const placePill = (head, row, ground) => {
+  if (!head) return;
+  head.removeAttribute("data-wrap");
+  head.removeAttribute("data-dot");
+  const pill = row.querySelector(":scope > .hpill");
+  const text = pill?.querySelector(".txt");
+  if (!text?.getBoundingClientRect || text.getBoundingClientRect().width <= 1) return;
+  const name = row.querySelector(":scope > .name, :scope > .title");
+  const zoom = row.querySelector(":scope > .zoom");
+  const gap = parseFloat(getComputedStyle(row).columnGap) || 0;
+  const title = name ? (name.scrollWidth > name.clientWidth ? name.scrollWidth : name.getBoundingClientRect().width) + gap : 0;
+  const room = row.getBoundingClientRect().width - (zoom ? zoom.getBoundingClientRect().width + gap : 0);
+  if (title + pill.getBoundingClientRect().width <= room + 0.5) return;
+  head.setAttribute("data-wrap", "");
+  const box = (row.closest(".titles") || row).getBoundingClientRect();
+  const frame = (ground ? ground.closest(".banner") : head).getBoundingClientRect();
+  const out = ground && (box.bottom > ground.getBoundingClientRect().top + 0.5 || box.top < frame.top - 0.5);
+  if (text.scrollWidth > text.clientWidth + 0.5 || out) {
+    head.removeAttribute("data-wrap");
+    head.setAttribute("data-dot", "");
+  }
+};
 
 class ZigbeeCard extends HTMLElement {
   constructor() {
@@ -907,6 +938,18 @@ class ZigbeeCard extends HTMLElement {
 
   connectedCallback() {
     (this._outsideWatch ??= watchOutside(this, (ev) => this._onOutside(ev))).on();
+    // A new width (or the web font loaded): the status pill is fitted again, in the next frame.
+    if (typeof ResizeObserver === "function") {
+      this._resize ??= new ResizeObserver((entries) => {
+        const w = Math.round(entries.at(-1).contentRect.width);
+        if (w === this._fitWidth) return;
+        this._fitWidth = w;
+        cancelAnimationFrame(this._fitFrame);
+        this._fitFrame = requestAnimationFrame(() => this._fitPill());
+      });
+      this._resize.observe(this);
+    }
+    if (typeof document !== "undefined") document.fonts?.ready?.then(() => this._fitPill());
     // The network is read again every `refresh_interval`; the relative times follow the clock.
     clearInterval(this._timer);
     this._timer = setInterval(() => {
@@ -918,6 +961,8 @@ class ZigbeeCard extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this._resize?.disconnect();
+    this._fitWidth = null;
     this._outsideWatch?.off();
     clearInterval(this._timer);
     // Left (another view, a conditional card hidden): the popup closes without anything else.
@@ -971,6 +1016,15 @@ class ZigbeeCard extends HTMLElement {
     if (html !== this._html) {
       this._html = html;
       morph(this.shadowRoot, html);
+    }
+    this._fitPill();
+  }
+
+  // The status pill's place, on the banner, the classic header and the classic mini card's row (see placePill).
+  _fitPill() {
+    for (const row of this.shadowRoot?.querySelectorAll?.(".trow, .mhd") || []) {
+      const banner = row.closest(".banner");
+      placePill(row.matches(".mhd") ? row : banner || row.closest(".header"), row, banner?.querySelector(".strip"));
     }
   }
 
@@ -1073,7 +1127,7 @@ class ZigbeeCard extends HTMLElement {
     const problem = net ? null : this._problem();
     const text = problem ? this._t(problem === "loading" ? "st_loading" : "st_unavailable") : net.attention ? this._p("issues", net.attention) : this._t("healthy");
     const level = problem && problem !== "loading" ? "alert" : this._badgeLevel(net);
-    return `<span class="chip hpill ${level}" title="${esc(text)}"><span class="dot"></span><span class="txt">${esc(text)}</span></span>`;
+    return `<span class="chip hpill ${level}" title="${esc(text)}" aria-label="${esc(text)}"><span class="dot"></span><span class="txt">${esc(text)}</span></span>`;
   }
 
   // The title and the status pill on one row (the pill right after the title), the statistics under them.
@@ -1082,7 +1136,7 @@ class ZigbeeCard extends HTMLElement {
     return `<div class="badge ${this._badgeLevel(net)}">${icon("mdi:zigbee")}</div>
       <div class="titles">
         <div class="trow"><div class="name">${esc(this._title())}</div>${this._pill(net)}</div>
-        ${stats.length ? `<div class="stats">${stats.map((s) => `<span>${esc(s)}</span>`).join("")}</div>` : ""}
+        ${stats.length ? `<div class="stats" title="${esc(stats.join(" · "))}">${stats.map((s) => `<span>${esc(s)}</span>`).join("")}</div>` : ""}
       </div>`;
   }
 
