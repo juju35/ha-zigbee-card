@@ -954,10 +954,8 @@ class ZigbeeCard extends HTMLElement {
     const mode = this._config.illustration_theme;
     if (mode === "night") return true;
     if (mode === "day") return false;
-    // Automatic: night when the sun is down (sun.sun), else with the dark theme.
-    const sun = this._hass?.states?.["sun.sun"]?.state;
-    if (sun === "below_horizon" || sun === "above_horizon") return sun === "below_horizon";
-    return !!this._hass?.themes?.darkMode;
+    // Automatic: night when the sun is down (sun.sun) or with the dark theme.
+    return this._hass?.states?.["sun.sun"]?.state === "below_horizon" || !!this._hass?.themes?.darkMode;
   }
 
   _weak() {

@@ -36,13 +36,13 @@ const encode = (dir, out, width) => {
 export const GIFS = [
   // The banner, one per state: a device offline (the lock red, blinking), a weak link (amber, dashed) and all well;
   // the packets running along the links and on the strip.
-  { name: "banner", tag: "zigbee-card", width: 480, banner: true, config: { illustration_theme: "day" } },
-  { name: "banner-weak", tag: "zigbee-card", width: 480, banner: true, config: { illustration_theme: "day", exclude: ["Garage door"] } },
-  { name: "banner-ok", tag: "zigbee-card", width: 480, banner: true, config: { illustration_theme: "day" }, hass: { healthy: true } },
+  { name: "banner", tag: "zigbee-card", width: 480, banner: true, config: {} },
+  { name: "banner-weak", tag: "zigbee-card", width: 480, banner: true, config: { exclude: ["Garage door"] } },
+  { name: "banner-ok", tag: "zigbee-card", width: 480, banner: true, config: {}, hass: { healthy: true } },
   // The same banner at night.
   { name: "night", tag: "zigbee-card", width: 480, banner: true, config: { illustration_theme: "night" }, hass: { healthy: true } },
   // The Map tab: the links to the routers flowing, the nodes with an issue blinking.
-  { name: "map", tag: "zigbee-card", width: 480, banner: false, config: { illustration_theme: "day", default_tab: "map" } },
+  { name: "map", tag: "zigbee-card", width: 480, banner: false, config: { default_tab: "map" } },
 ];
 
 if (process.argv[1]?.endsWith("animations.mjs")) {

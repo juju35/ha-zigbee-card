@@ -70,7 +70,7 @@ export const launch = () => chromium.launch(process.env.CHROMIUM_PATH ? { execut
 
 // A page ready to host a card, its clock fixed at the mock's NOW (the timers keep running).
 export const openPage = async (browser, { theme, width, label = "" }) => {
-  const page = await browser.newPage({ deviceScaleFactor: 2, viewport: { width: 1000, height: 1600 } });
+  const page = await browser.newPage({ deviceScaleFactor: 2, viewport: { width: 1000, height: 1600 }, colorScheme: theme ?? "light" });
   page.on("pageerror", (err) => console.error(`pageerror${label ? ` (${label})` : ""}: ${err.message}`));
   await page.clock.setFixedTime(new Date(NOW));
   await page.setContent(pageHtml(theme, width));

@@ -285,14 +285,16 @@ test("illustration: night by the dark theme or forced, classic header without it
   const classic = (await card(zb.ZigbeeCard, { illustration: false }))._render();
   assert.doesNotMatch(classic, /class="scene"/);
   assert.match(classic, /<div class="header"><div class="badge alert">/);
-  // Automatic: the sun first, then the dark theme.
+  // Automatic: the sun down or the dark theme.
   const sun = (state, dark) => {
     const h = mockHass({ dark });
     h.states = { ...h.states, "sun.sun": { state } };
     return h;
   };
   assert.match((await card(zb.ZigbeeCard, {}, sun("below_horizon", false)))._render(), /class="banner night"/);
-  assert.doesNotMatch((await card(zb.ZigbeeCard, {}, sun("above_horizon", true)))._render(), /banner night/);
+  assert.match((await card(zb.ZigbeeCard, {}, sun("above_horizon", true)))._render(), /class="banner night"/);
+  assert.doesNotMatch((await card(zb.ZigbeeCard, {}, sun("above_horizon", false)))._render(), /banner night/);
+  assert.doesNotMatch((await card(zb.ZigbeeCard, { illustration_theme: "day" }, sun("below_horizon", true)))._render(), /banner night/);
   // The scene and the icon follow the network: a device offline (the lock red, its link lost), another issue (an
   // amber weak link), all well (no issue, the icon green).
   const off = (await card(zb.ZigbeeCard))._render();

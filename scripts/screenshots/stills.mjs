@@ -7,13 +7,13 @@ const FULL = 480;
 const MINI = 380;
 export const SHOTS = [
   // The Devices tab: status chips, filters and the device tiles.
-  ...pair("card", { tag: "zigbee-card", config: { illustration_theme: "day" } }),
+  ...pair("card", { tag: "zigbee-card", config: {} }),
   // The Map tab: the mesh, its legend and the devices that need attention.
-  ...pair("card-map", { tag: "zigbee-card", config: { illustration_theme: "day", default_tab: "map" } }),
+  ...pair("card-map", { tag: "zigbee-card", config: { default_tab: "map" } }),
   // The Attention filter.
-  ...pair("card-attention", { tag: "zigbee-card", config: { illustration_theme: "day", default_filter: "attention" } }),
+  ...pair("card-attention", { tag: "zigbee-card", config: { default_filter: "attention" } }),
   // The popup of a device, at the top of the card.
-  ...pair("card-detail", { tag: "zigbee-card", config: { illustration_theme: "day" }, clicks: [".tile.warn"] }),
+  ...pair("card-detail", { tag: "zigbee-card", config: {}, clicks: [".tile.warn"] }),
   // The night banner.
   ...pair("card-night", { tag: "zigbee-card", config: { illustration_theme: "night", default_tab: "map" } }),
   // Without the illustration: the classic header.
@@ -23,7 +23,7 @@ export const SHOTS = [
   ...pair("mini-card-healthy", { tag: "zigbee-mini-card", config: {}, width: MINI, hass: { healthy: true } }),
   ...pair("mini-card-bar", { tag: "zigbee-mini-card", config: { mini_layout: "bar" }, width: MINI }),
   ...pair("mini-card-classic", { tag: "zigbee-mini-card", config: { illustration: false }, width: MINI }),
-  ...pair("mini-card-zoom", { tag: "zigbee-mini-card", config: { illustration_theme: "day", max_devices: 6 }, clicks: [".zoom"] }),
+  ...pair("mini-card-zoom", { tag: "zigbee-mini-card", config: { max_devices: 6 }, clicks: [".zoom"] }),
 ];
 
 if (process.argv[1]?.endsWith("stills.mjs")) {

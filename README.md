@@ -134,7 +134,7 @@ zoom: true
 | `refresh_interval` | both | `60` | Seconds between two reads of the network (10 at least) |
 | `show_status` | both | `true` | The status chips under the tabs |
 | `illustration` | both | `true` | The animated banner as header (full and mini card); `false` for a classic header with a round icon |
-| `illustration_theme` | both | `auto` | `auto` (night when the sun is down, from `sun.sun`, else with the dark theme of Home Assistant), `day` or `night` |
+| `illustration_theme` | both | `auto` | `auto` (night when the sun is down, from `sun.sun`, or with the dark theme of Home Assistant), `day` or `night` |
 | `exclude` | both | None | **YAML only.** A list of devices to leave out, by IEEE address or name |
 | `mini_layout` | mini | `chips` | The mini card's second line: `chips` or `bar` (a health bar with a summary) |
 | `zoom` | mini | `true` | Zoom button: unfolds the full card and back (`false` removes it). The full card's options above apply to the unfolded view and are also set in the mini card's visual editor |
