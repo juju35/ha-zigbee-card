@@ -224,17 +224,20 @@ test("the ZHA data is read once for every card and again after the refresh inter
   assert.equal(zb.zhaEntry(hass).version, 2);
 });
 
-test("the mini card: badge, status and chips; the health bar layout", async () => {
+test("the mini card: banner, status and chips; the health bar layout; the classic line", async () => {
   const html = (await card(zb.ZigbeeMiniCard))._render();
-  assert.match(html, /class="mini warn"/);
-  assert.match(html, /class="title">Zigbee</);
-  assert.match(html, /3 issues/);
+  // The full card's banner, its sky holding the device count and the status; the icon red (a device is offline).
+  assert.match(html, /class="banner"/);
+  assert.match(html, /class="scene"/);
+  assert.match(html, /class="badge alert"><ha-icon icon="mdi:zigbee">/);
+  assert.match(html, /class="name">Zigbee</);
+  assert.match(html, /<span>42 devices<\/span><span>3 issues<\/span>/);
   assert.match(html, /class="r ok"><ha-icon icon="mdi:router-wireless"><\/ha-icon><span>14 routers/);
   assert.match(html, /class="r alert pill">.*1 offline/s);
   assert.match(html, /class="r warn pill">.*1 low battery/s);
   assert.match(html, /aria-label="Show the full card"/);
   const ok = (await card(zb.ZigbeeMiniCard, {}, mockHass({ healthy: true })))._render();
-  assert.match(ok, /class="mini ok"/);
+  assert.match(ok, /class="badge ok"/);
   assert.match(ok, /Healthy/);
   assert.match(ok, /42 online/);
   assert.match(ok, /LQI \d+/);
@@ -242,6 +245,12 @@ test("the mini card: badge, status and chips; the health bar layout", async () =
   assert.match(bar, /class="hbar"/);
   assert.match(bar, /<span class="ok" style="flex-grow: 39"><\/span><span class="warn" style="flex-grow: 2"><\/span><span class="alert" style="flex-grow: 1"><\/span>/);
   assert.match(bar, /1 offline · 1 low battery · 14 routers/);
+  // Without the illustration: the badge, the title and the status in one line.
+  const classic = (await card(zb.ZigbeeMiniCard, { illustration: false }))._render();
+  assert.match(classic, /class="mini warn"/);
+  assert.match(classic, /class="title">Zigbee</);
+  assert.match(classic, /class="badge alert"/);
+  assert.doesNotMatch(classic, /class="banner/);
 });
 
 test("the mini card's zoom button unfolds the full card; a click outside folds it back", async () => {
@@ -275,10 +284,31 @@ test("illustration: night by the dark theme or forced, classic header without it
   assert.doesNotMatch((await card(zb.ZigbeeCard, { illustration_theme: "day" }, mockHass({ dark: true })))._render(), /banner night/);
   const classic = (await card(zb.ZigbeeCard, { illustration: false }))._render();
   assert.doesNotMatch(classic, /class="scene"/);
-  assert.match(classic, /<div class="header"><div class="badge">/);
-  // The scene's far node blinks amber with an issue, stays green on a healthy network.
-  assert.match((await card(zb.ZigbeeCard))._render(), /class="leaf warn blink"/);
-  assert.match((await card(zb.ZigbeeCard, {}, mockHass({ healthy: true })))._render(), /class="leaf ok" cx="178" cy="50"/);
+  assert.match(classic, /<div class="header"><div class="badge alert">/);
+  // Automatic: the sun first, then the dark theme.
+  const sun = (state, dark) => {
+    const h = mockHass({ dark });
+    h.states = { ...h.states, "sun.sun": { state } };
+    return h;
+  };
+  assert.match((await card(zb.ZigbeeCard, {}, sun("below_horizon", false)))._render(), /class="banner night"/);
+  assert.doesNotMatch((await card(zb.ZigbeeCard, {}, sun("above_horizon", true)))._render(), /banner night/);
+  // The scene and the icon follow the network: a device offline (the lock red, its link lost), another issue (an
+  // amber weak link), all well (no issue, the icon green).
+  const off = (await card(zb.ZigbeeCard))._render();
+  assert.match(off, /class="dev lost"/);
+  assert.match(off, /class="ln lost"/);
+  assert.match(off, /class="badge alert"/);
+  const warn = (await card(zb.ZigbeeCard, { exclude: ["Garage door"] }))._render();
+  assert.match(warn, /class="dev weak"/);
+  assert.doesNotMatch(warn, /class="dev lost"/);
+  assert.match(warn, /class="badge warn"/);
+  const ok = (await card(zb.ZigbeeCard, {}, mockHass({ healthy: true })))._render();
+  assert.doesNotMatch(ok, /class="dev (weak|lost)"/);
+  assert.match(ok, /class="badge ok"/);
+  assert.match(ok, /class="strip g-mesh zig"/);
+  // No id in the scene: several cards on a page never clash.
+  assert.doesNotMatch(ok.match(/<svg class="scene"[\s\S]*?<\/svg>/)[0], /\sid="/);
   assert.doesNotMatch((await card(zb.ZigbeeCard, { show_status: false }))._render(), /class="status"/);
 });
 

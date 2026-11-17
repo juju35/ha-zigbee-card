@@ -22,6 +22,7 @@ export const SHOTS = [
   ...pair("mini-card", { tag: "zigbee-mini-card", config: {}, width: MINI }),
   ...pair("mini-card-healthy", { tag: "zigbee-mini-card", config: {}, width: MINI, hass: { healthy: true } }),
   ...pair("mini-card-bar", { tag: "zigbee-mini-card", config: { mini_layout: "bar" }, width: MINI }),
+  ...pair("mini-card-classic", { tag: "zigbee-mini-card", config: { illustration: false }, width: MINI }),
   ...pair("mini-card-zoom", { tag: "zigbee-mini-card", config: { illustration_theme: "day", max_devices: 6 }, clicks: [".zoom"] }),
 ];
 

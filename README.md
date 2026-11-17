@@ -24,7 +24,7 @@ The cards read the network straight from ZHA, the same data as its network visua
 ## Features
 
 - Two cards: a full **Zigbee Card** and a compact **Zigbee Mini Card**, of type `custom:zigbee-card` and `custom:zigbee-mini-card`
-- An animated banner as header: an amber gradient, the mesh flowing from the coordinator to its routers and end devices, its far node blinking amber (or red) when a device needs attention, and packets running along the bottom strip; a night look with the dark theme of Home Assistant
+- An illustrated, animated banner as header (90 px, on the full and the mini card): an amber gradient, a house with the Zigbee coordinator in its middle and its devices around it (bulb, plug, thermometer, motion sensor, lock, blind), packets running along their links and dots along the mesh strip at the bottom. It follows the network: all well, a **weak link** (amber, dashed) when a device needs attention, a **device offline** (red, blinking, its link lost). The round Zigbee icon takes the status colour: green, amber or red. A night look when the sun is down (`sun.sun`) or with the dark theme of Home Assistant; motion stops with *reduce motion*
 - The header shows the network's name with « ZHA · Channel 15 · 42 devices » (Devices tab) or « 42 devices · 14 routers » (Map tab)
 - **Devices** and **Map** text tabs right under the banner
 - **Devices** tab: status chips (« 41 / 42 online », « 1 offline », « 1 low battery », and when the network was read), the filters **All**, **Routers**, **End devices** and **Attention** with their counts, and a two-column grid of tiles, one per device: its icon (from its main entity), its name, a state line such as « Router · LQI 230 », « LQI 156 · battery 82% », « Offline · 3 h », « Weak signal · LQI 61 » or « Battery 12% », four signal bars from the LQI and a status dot
@@ -32,7 +32,7 @@ The cards read the network straight from ZHA, the same data as its network visua
 - **Map** tab: the coordinator in the centre, the routers on an inner ring, the end devices outside next to their parent; the links come from the neighbor tables and are coloured by link quality: green, **amber dashed** when weak, **red dashed** when lost. A legend, the channel and the PAN id, and a folding **Needs attention** list with each device's last contact and parent
 - Click a tile, a node of the map or a row for the device's popup, at the top of the card: model, manufacturer, LQI, RSSI, battery, power source, last seen, the router it is connected through, area, IEEE and network addresses, a folding list of its neighbors and a link to its device page; it closes with its button, a click anywhere else, Escape, or when the card leaves the page
 - Configurable thresholds for a weak signal (LQI) and a low battery (%)
-- Mini card: the 40 px Zigbee badge tinted by the network's health, its status (« 3 issues » or « Healthy »), chips (routers, offline, low battery; or online, routers and the average LQI) or a health bar, and a zoom button that unfolds the full card; a click anywhere outside the card folds it back
+- Mini card: the same illustrated banner with « 42 devices · 3 issues » (or « Healthy ») on its sky (with `illustration: false`, the 40 px Zigbee badge tinted by the network's health and its status in one line), then chips (routers, offline, low battery; or online, routers and the average LQI) or a health bar, and a zoom button that unfolds the full card; a click anywhere outside the card folds it back
 - Visual editor for both cards; options left at their default are kept out of the YAML
 - Light and dark themes, `prefers-reduced-motion` honoured
 - English, French, German, Spanish, Serbian (Cyrillic and Latin), Italian, Dutch, European Portuguese, Polish, Romanian, Danish, Swedish, Bulgarian, Russian, Ukrainian, Hungarian, Slovak, Czech, Slovenian, Latvian and Greek
@@ -133,8 +133,8 @@ zoom: true
 | `max_devices` | both | `12` | Tiles shown before the « Show all » row; `0` shows every device |
 | `refresh_interval` | both | `60` | Seconds between two reads of the network (10 at least) |
 | `show_status` | both | `true` | The status chips under the tabs |
-| `illustration` | both | `true` | The animated banner as header; `false` for a classic header with a round icon |
-| `illustration_theme` | both | `auto` | `auto` (night with the dark theme of Home Assistant), `day` or `night` |
+| `illustration` | both | `true` | The animated banner as header (full and mini card); `false` for a classic header with a round icon |
+| `illustration_theme` | both | `auto` | `auto` (night when the sun is down, from `sun.sun`, else with the dark theme of Home Assistant), `day` or `night` |
 | `exclude` | both | None | **YAML only.** A list of devices to leave out, by IEEE address or name |
 | `mini_layout` | mini | `chips` | The mini card's second line: `chips` or `bar` (a health bar with a summary) |
 | `zoom` | mini | `true` | Zoom button: unfolds the full card and back (`false` removes it). The full card's options above apply to the unfolded view and are also set in the mini card's visual editor |
@@ -148,11 +148,23 @@ Every option but `exclude` is in the visual editor.
 
 The mesh flows from the coordinator, the node of a device that needs attention blinks, and packets run along the bottom strip of the banner; on the map, the links to the routers flow and the nodes with an issue blink. With `prefers-reduced-motion`, everything stays still.
 
-Banner:
+Banner, all well:
 
 | Light | Dark |
 |---|---|
-| <img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/screenshots/banner.gif" alt="banner animation" width="400"> | <img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/screenshots/banner-dark.gif" alt="banner animation, dark theme" width="400"> |
+| <img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/screenshots/banner-ok.gif" alt="banner animation, all well" width="400"> | <img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/screenshots/banner-ok-dark.gif" alt="banner animation, all well, dark theme" width="400"> |
+
+Banner, a weak link:
+
+| Light | Dark |
+|---|---|
+| <img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/screenshots/banner-weak.gif" alt="banner animation, weak link" width="400"> | <img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/screenshots/banner-weak-dark.gif" alt="banner animation, weak link, dark theme" width="400"> |
+
+Banner, a device offline:
+
+| Light | Dark |
+|---|---|
+| <img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/screenshots/banner.gif" alt="banner animation, device offline" width="400"> | <img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/screenshots/banner-dark.gif" alt="banner animation, device offline, dark theme" width="400"> |
 
 Night banner:
 
@@ -185,7 +197,7 @@ The popup of a device, at the top of the card:
 |---|---|
 | <img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/screenshots/card-detail.png" alt="device popup" width="400"> | <img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/screenshots/card-detail-dark.png" alt="device popup, dark theme" width="400"> |
 
-Night banner (`illustration_theme: night`, or automatic with the dark theme):
+Night banner (`illustration_theme: night`, or automatic when the sun is down or with the dark theme):
 
 | Light | Dark |
 |---|---|
@@ -204,6 +216,7 @@ Classic header (`illustration: false`, here with `max_devices: 6`):
 | <img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/screenshots/mini-card.png" alt="mini card" width="380"> | <img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/screenshots/mini-card-dark.png" alt="mini card, dark theme" width="380"> |
 | <img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/screenshots/mini-card-healthy.png" alt="mini card, healthy network" width="380"> | <img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/screenshots/mini-card-healthy-dark.png" alt="mini card, healthy network, dark theme" width="380"> |
 | <img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/screenshots/mini-card-bar.png" alt="mini card with its health bar" width="380"> | <img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/screenshots/mini-card-bar-dark.png" alt="mini card with its health bar, dark theme" width="380"> |
+| <img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/screenshots/mini-card-classic.png" alt="mini card without the illustration" width="380"> | <img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/screenshots/mini-card-classic-dark.png" alt="mini card without the illustration, dark theme" width="380"> |
 
 Unfolded with its zoom button (click it again or anywhere outside the card to go back):
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.0 - 2026-11-17
+
+### Features
+- Illustrated header, 90 px on the full card and on the mini card: the title on the left over the amber gradient, on the right a house with the Zigbee coordinator in its middle and six devices around it (bulb, plug, thermometer, motion sensor, lock, blind), packets running along their links, and a 10 px amber mesh strip edge to edge at the bottom, dots running along it (day and night looks).
+- The scene follows the network: all well, a weak link (amber, dashed) when a device needs attention, a device offline (the lock red, blinking, its link lost).
+- The round `mdi:zigbee` icon takes the status colour on the full and the mini card, day and night: green when all is well, amber with an issue, red with a device offline or an error, grey while loading.
+- Automatic night look when the sun is down (`sun.sun`), else with the dark theme; `illustration_theme: day | night` still forces it. `prefers-reduced-motion` stops the packets, the ping and the strip.
+- The mini card shows the same banner with « 42 devices · 3 issues » on its sky and its zoom button at the top right, then its chips or health bar; `illustration: false` keeps the one-line layout.
+
 ## 1.0.0 - 2026-11-16
 
 ### Features
