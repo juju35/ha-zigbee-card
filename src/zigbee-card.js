@@ -406,27 +406,55 @@ const navigate = (path) => {
 };
 
 // ---------------------------------------------------------------------------
-// The illustration: the mesh flowing from the coordinator, packets running on the bottom strip
+// The illustration: a house and its Zigbee mesh flowing from the coordinator, packets running on the bottom strip
 // ---------------------------------------------------------------------------
 
-// Every animation of the cards lasts a divisor of 6 s (flow and blink 1.5 s, packets 1.5 s and 2 s), so a recording
-// of 6 s loops. The scene is drawn in a 200 × 80 box standing on the strip. Its far node takes the network's worst
-// level: green, or blinking amber / red.
-const sceneSvg = (level) => `<svg class="scene" viewBox="0 0 200 80" preserveAspectRatio="xMaxYMax meet" aria-hidden="true" focusable="false">
-    <g class="trunk">
-      <line class="flow" x1="100" y1="44" x2="60" y2="28"/><line class="flow" x1="100" y1="44" x2="62" y2="64"/>
-      <line class="flow" x1="100" y1="44" x2="140" y2="28"/><line class="flow" x1="100" y1="44" x2="142" y2="64"/>
-    </g>
-    <g class="twigs">
-      <line x1="60" y1="28" x2="24" y2="20"/><line x1="62" y1="64" x2="26" y2="52"/><line x1="140" y1="28" x2="178" y2="18"/>
-      <line x1="142" y1="64" x2="178" y2="50"${level === "ok" ? "" : ' stroke-dasharray="2 3"'}/>
-    </g>
-    <circle class="leaf ok" cx="24" cy="20" r="4"/><circle class="leaf ok" cx="26" cy="52" r="4"/><circle class="leaf ok" cx="178" cy="18" r="4"/>
-    <circle class="leaf ${level}${level === "ok" ? "" : " blink"}" cx="178" cy="50" r="${level === "ok" ? 4 : 4.5}"/>
-    <g class="hubs"><circle cx="60" cy="28" r="6.5"/><circle cx="62" cy="64" r="6.5"/><circle cx="140" cy="28" r="6.5"/><circle cx="142" cy="64" r="6.5"/></g>
-    <circle class="core" cx="100" cy="44" r="12"/>
-    <path class="mark" transform="translate(92 36) scale(0.667)" d="${ZIGBEE_PATH}"/>
+// Every animation of the cards lasts a divisor of 6 s (flow, blink and packets 1.5 s, 2 s or 3 s, the ping 2 s), so
+// a recording of 6 s loops. The scene: a section of a house standing on the strip, the coordinator in its middle and
+// six devices around it (a bulb, a plug, a thermometer, a motion sensor, a lock and a blind), packets running along
+// their links. Its state: "ok", "warn" (the thermometer's link weak, amber and dashed) or "off" (the lock offline,
+// red, its link lost). Drawn in the right part (x 84 to 200) of a 200 × 80 box; no ids, so cards never clash.
+const SCENE_GLYPHS = {
+  light: "M12,2A7,7 0 0,0 5,9C5,11.38 6.19,13.47 8,14.74V17A1,1 0 0,0 9,18H15A1,1 0 0,0 16,17V14.74C17.81,13.47 19,11.38 19,9A7,7 0 0,0 12,2M9,21A1,1 0 0,0 10,22H14A1,1 0 0,0 15,21V20H9V21Z",
+  plug: "M7.5,10.5A1.5,1.5 0 0,1 9,12A1.5,1.5 0 0,1 7.5,13.5C6.66,13.5 6,12.83 6,12A1.5,1.5 0 0,1 7.5,10.5M16.5,10.5A1.5,1.5 0 0,1 18,12A1.5,1.5 0 0,1 16.5,13.5A1.5,1.5 0 0,1 15,12A1.5,1.5 0 0,1 16.5,10.5M4.22,2H19.78C21,2 22,3 22,4.22V19.78A2.22,2.22 0 0,1 19.78,22H4.22C3,22 2,21 2,19.78V4.22A2.22,2.22 0 0,1 4.22,2M12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4Z",
+  temp: "M15 13V5A3 3 0 0 0 9 5V13A5 5 0 1 0 15 13M12 4A1 1 0 0 1 13 5V8H11V5A1 1 0 0 1 12 4Z",
+  motion: "M10,0.2C9,0.2 8.2,1 8.2,2C8.2,3 9,3.8 10,3.8C11,3.8 11.8,3 11.8,2C11.8,1 11,0.2 10,0.2M15.67,1A7.33,7.33 0 0,0 23,8.33V7A6,6 0 0,1 17,1H15.67M18.33,1C18.33,3.58 20.42,5.67 23,5.67V4.33C21.16,4.33 19.67,2.84 19.67,1H18.33M21,1A2,2 0 0,0 23,3V1H21M7.92,4.03C7.75,4.03 7.58,4.06 7.42,4.11L2,5.8V11H3.8V7.33L5.91,6.67L2,22H3.8L6.67,13.89L9,17V22H10.8V15.59L8.31,11.05L9.04,8.18L10.12,10H15V8.2H11.38L9.38,4.87C9.08,4.37 8.54,4.03 7.92,4.03Z",
+  lock: "M12,17A2,2 0 0,0 14,15C14,13.89 13.1,13 12,13A2,2 0 0,0 10,15A2,2 0 0,0 12,17M18,8A2,2 0 0,1 20,10V20A2,2 0 0,1 18,22H6A2,2 0 0,1 4,20V10C4,8.89 4.9,8 6,8H7V6A5,5 0 0,1 12,1A5,5 0 0,1 17,6V8H18M12,3A3,3 0 0,0 9,6V8H15V6A3,3 0 0,0 12,3Z",
+  blinds: "M20 19V3H4V19H2V21H22V19H20M16 9H18V11H16V9M14 11H6V9H14V11M18 7H16V5H18V7M14 5V7H6V5H14M6 19V13H14V14.82C13.55 15.14 13.25 15.66 13.25 16.25C13.25 17.22 14.03 18 15 18S16.75 17.22 16.75 16.25C16.75 15.66 16.45 15.13 16 14.82V13H18V19H6Z",
+};
+const SCENE_DEVICES = [
+  ["light", 114, 36],
+  ["plug", 146, 21],
+  ["temp", 178, 36],
+  ["motion", 110, 65],
+  ["lock", 184, 65],
+  ["blinds", 146, 70.5],
+];
+const SCENE_HUB = [146, 46];
+const SCENE_WEAK = 2;
+const SCENE_OFF = 4;
+const PACKET_S = [1.5, 2, 3, 1.5, 3, 2];
+const sceneSvg = (state) => {
+  const [hx, hy] = SCENE_HUB;
+  const linkOf = (i) => (state === "off" && i === SCENE_OFF ? "lost" : state === "warn" && i === SCENE_WEAK ? "weak" : "ok");
+  const links = SCENE_DEVICES.map(([, x, y], i) => {
+    const l = linkOf(i);
+    const line = `<line class="ln ${l}" x1="${hx}" y1="${hy}" x2="${x}" y2="${y}"/>`;
+    const pkt = l === "lost" ? "" : `<line class="pkt" pathLength="100" x1="${hx}" y1="${hy}" x2="${x}" y2="${y}" style="animation-duration:${PACKET_S[i]}s;animation-delay:-${(i * 0.5) % PACKET_S[i]}s"/>`;
+    return line + pkt;
+  }).join("");
+  const devices = SCENE_DEVICES.map(([k, x, y], i) => {
+    const l = linkOf(i);
+    return `<g class="dev ${l}" transform="translate(${x} ${y})"><circle r="9.5"/><path transform="translate(-6.5 -6.5) scale(.5417)" d="${SCENE_GLYPHS[k]}"/>${
+      l === "lost" ? '<circle class="alarm blink" cx="7" cy="-7" r="2.6"/>' : ""
+    }</g>`;
+  }).join("");
+  return `<svg class="scene" viewBox="84 0 116 80" preserveAspectRatio="xMaxYMax meet" aria-hidden="true" focusable="false">
+    <path class="house" d="M92 80 V31 L146 4 L198 31 V80"/><line class="floor" x1="92" y1="${hy}" x2="198" y2="${hy}"/>
+    ${links}${devices}
+    <g class="hub" transform="translate(${hx} ${hy})"><circle class="ping" r="11"/><circle class="core" r="11"/><path class="mark" transform="translate(-7.5 -7.5) scale(.625)" d="${ZIGBEE_PATH}"/></g>
   </svg>`;
+};
 
 // ---------------------------------------------------------------------------
 // The mesh map: the coordinator in the centre, the routers on the inner ring, the end devices outside
@@ -523,42 +551,77 @@ const STYLE = `
   .warning, .empty { padding: 14px 16px; font-size: 13px; color: var(--secondary-text-color); }
   .warning { color: color-mix(in srgb, var(--zb-warn) 40%, var(--primary-text-color, #212121)); }
 
-  /* ── Illustrated header ── */
-  .banner { position: relative; height: var(--banner-h, 92px); overflow: hidden; --strip-h: 12px;
-            --sky-text: #3d2a00; --sky-muted: #6b5320; --mesh: #b07a00; --twig: #c9a65a; --hub: #ffffff;
+  /* ── Illustrated header: 90 px, the title on the left, the house on the right, a 10 px mesh strip ── */
+  .banner { position: relative; height: var(--banner-h, 90px); overflow: hidden; --strip-h: 10px; --scene-w: calc((var(--banner-h, 90px) - var(--strip-h)) * 1.45);
+            --sky-text: #3d2a00; --sky-muted: #6b5320; --line: #b07a00; --dev-bg: #fff8ea; --dev-st: #e9c77a; --wall: #d8cfc1;
+            --house: rgba(255,255,255,.55); --weak: #f5b400; --lost: #e5484d;
             background: linear-gradient(90deg, #fffaf0 0%, #fdf1d8 34%, #f8dfa8 70%, #f3cf86 100%); }
-  .banner.night { --sky-text: #ffffff; --sky-muted: rgba(255,255,255,.78); --mesh: #ffc94d; --twig: rgba(255,201,77,.5); --hub: #2b2214;
+  .banner.night { --sky-text: #ffffff; --sky-muted: rgba(255,255,255,.78); --line: #ffc94d; --dev-bg: #2b2214; --dev-st: #5a4520;
+                  --wall: #3a4456; --house: rgba(255,255,255,.03);
                   background: linear-gradient(90deg, #2e2412 0%, #281f0f 36%, #21190b 72%, #1a1308 100%); }
   .banner .scene { position: absolute; right: var(--scene-shift, 0px); bottom: var(--strip-h); height: calc(100% - var(--strip-h));
-                   width: min(calc((var(--banner-h, 92px) - var(--strip-h)) * 2.5), var(--scene-max, 58%)); overflow: hidden; }
-  .scene .trunk { stroke: var(--mesh); stroke-width: 1.8; fill: none; stroke-linecap: round; stroke-dasharray: 2 5; opacity: .8; }
-  .scene .twigs { stroke: var(--twig); stroke-width: 1.2; }
-  .scene .hubs { fill: var(--hub); stroke: var(--zb-ok); stroke-width: 1.8; }
-  .scene .leaf { fill: var(--c); }
-  .scene .core { fill: var(--hub); stroke: var(--mesh); stroke-width: 2; }
-  .scene .mark { fill: var(--mesh); }
-  .strip { position: absolute; left: 0; right: 0; bottom: 0; height: var(--strip-h); background: #8f9aa6;
-           box-shadow: inset 0 1px 0 #7a8591, inset 0 -1px 0 #7a8591; }
-  .night .strip { background: #2c323b; box-shadow: inset 0 1px 0 #1f242b, inset 0 -1px 0 #1f242b; }
-  /* The packets: white dashes running along the strip, pulsing. */
-  .strip .packets { position: absolute; left: 0; right: 0; top: calc(50% - 1px); height: 2px;
-                    background: repeating-linear-gradient(90deg, rgba(255,255,255,.85) 0 6px, transparent 6px 14px);
-                    animation: zb-run 1.5s linear infinite, zb-pulse 2s ease-in-out infinite; }
-  .night .strip .packets { background: repeating-linear-gradient(90deg, rgba(255,201,77,.75) 0 6px, transparent 6px 14px); }
+                   width: min(var(--scene-w), var(--scene-max, 58%)); overflow: hidden; }
+  .scene .house { fill: var(--house); stroke: var(--wall); stroke-width: 1.6; stroke-linejoin: round; }
+  .scene .floor { stroke: var(--wall); stroke-width: 1; stroke-dasharray: 3 3; }
+  .scene .ln { stroke: var(--line); stroke-width: 1.3; stroke-opacity: .6; }
+  .scene .ln.weak { stroke: var(--weak); stroke-opacity: .9; stroke-dasharray: 4 2; }
+  .scene .ln.lost { stroke: var(--lost); stroke-opacity: .85; stroke-dasharray: 2 3; }
+  .scene .pkt { stroke: var(--line); stroke-width: 3.4; stroke-linecap: round; stroke-dasharray: .1 99.9; fill: none;
+                animation: zb-pkt 2s linear infinite; }
+  .scene .dev > circle:first-child { fill: var(--dev-bg); stroke: var(--dev-st); stroke-width: 1.5; }
+  .scene .dev path { fill: var(--line); }
+  .scene .dev.weak > circle:first-child { stroke: var(--weak); }
+  .scene .dev.lost > circle:first-child { stroke: var(--lost); }
+  .scene .dev.lost path, .scene .alarm { fill: var(--lost); }
+  .scene .core { fill: var(--line); }
+  .scene .ping { fill: none; stroke: var(--line); stroke-width: 1; transform-box: fill-box; transform-origin: center; animation: zb-ping 2s ease-out infinite; }
+  .scene .mark { fill: #ffffff; }
+  /* The mesh strip: amber dots on a line, running like packets. */
+  .strip { position: absolute; left: 0; right: 0; bottom: 0; height: var(--strip-h); --mc: #d49a16;
+           background-color: color-mix(in srgb, var(--mc) 18%, #e9eef5);
+           background-image: radial-gradient(circle, var(--mc) 2px, transparent 2.5px), linear-gradient(var(--mc), var(--mc));
+           background-size: 24px 100%, 100% 1px; background-repeat: repeat-x, no-repeat; background-position: 0 50%, 0 50%;
+           box-shadow: inset 0 2px 0 color-mix(in srgb, var(--mc) 50%, #fff); animation: zb-run 2s linear infinite; }
+  .night .strip { background-color: color-mix(in srgb, var(--mc) 20%, #1a202c); }
   .head { position: absolute; z-index: 1; left: 0; top: 0; bottom: var(--strip-h); box-sizing: border-box;
-          right: calc(min(calc((var(--banner-h, 92px) - var(--strip-h)) * 2.5), var(--scene-max, 58%)) + var(--scene-shift, 0px));
+          right: calc(min(var(--scene-w), var(--scene-max, 58%)) + var(--scene-shift, 0px));
           display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; min-width: 0; color: var(--sky-text); }
-  .badge { width: 40px; height: 40px; flex: none; border-radius: 50%; display: grid; place-items: center; color: var(--zb-accent);
+  /* The header icon takes the network's status colour: green, amber, red, grey while loading. */
+  .idle { --c: var(--zb-idle); }
+  .badge { width: 40px; height: 40px; flex: none; border-radius: 50%; display: grid; place-items: center; color: var(--c, var(--zb-accent));
            background: rgba(255,255,255,.62); box-shadow: inset 0 0 0 1px rgba(176,122,0,.2); }
-  .night .badge { background: rgba(255,255,255,.12); color: #ffc94d; box-shadow: inset 0 0 0 1px rgba(255,255,255,.14); }
+  .night .badge { background: rgba(255,255,255,.12); box-shadow: inset 0 0 0 1px rgba(255,255,255,.14); }
   .badge ha-icon { --mdc-icon-size: 24px; }
-  .titles { flex: 1 1 0; min-width: 0; overflow: hidden; }
+  .titles { flex: 1 1 0; min-width: 0; overflow: hidden; display: flex; flex-direction: column; }
+  /* The title row: the pill 8 px after the title with its whole label, only when the whole title fits beside it
+     (measured by the card, see placePill); otherwise on its own line under the statistics (kept to one line); when
+     even that cuts its label or leaves the banner, and at 200 px or less, its dot alone. */
+  .trow { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .trow .name { flex: 0 1 auto; min-width: 0; }
+  .hpill { flex: none; max-width: 100%; }
+  [data-wrap] .trow { display: contents; }
+  [data-wrap] .titles > .stats { order: 2; max-height: 16px; }
+  [data-wrap] .titles .hpill { order: 3; align-self: flex-start; margin-top: 2px; }
+  [data-wrap].mhd { flex-wrap: wrap; row-gap: 2px; }
+  [data-wrap].mhd .hpill { order: 3; }
+  [data-dot] .hpill { padding: 3px; }
+  [data-dot] .hpill .txt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .banner .hpill { background: color-mix(in srgb, var(--c) 18%, rgba(255,255,255,.78)); color: color-mix(in srgb, var(--c) 45%, #0d2a45); }
+  .banner.night .hpill { background: color-mix(in srgb, var(--c) 30%, rgba(8,18,38,.55)); color: color-mix(in srgb, var(--c) 35%, #ffffff); }
+  /* 200 px or less: its dot alone. */
+  @container (max-width: 200px) {
+    .hpill { padding: 3px; }
+    .hpill .txt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  }
   .name { font-size: 16px; font-weight: 500; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* The statistics on two lines at most: a part that does not fit goes to a third line, clipped away; the "·" that
      starts a line sits in the negative margin, clipped too. */
   .stats { display: flex; flex-wrap: wrap; max-height: 32px; overflow: hidden; margin-left: -10px; font-size: 12px; line-height: 16px; color: var(--sky-muted); }
   .stats span { white-space: nowrap; }
   .stats span::before { content: "·"; display: inline-block; width: 10px; text-align: center; }
+  /* Narrower cards: the mesh is drawn smaller (about 70 %), so that the title stays whole and the status pill keeps its
+     label beside it. */
+  @container (max-width: 380px) { .banner { --scene-w: 80px; } }
   /* A narrow card keeps the gradient and the strip for its texts: no scene. */
   @container (max-width: 300px) {
     .banner .scene { display: none; }
@@ -567,7 +630,7 @@ const STYLE = `
 
   /* ── Classic header (illustration: false) ── */
   .header { display: flex; align-items: center; gap: 10px; padding: 12px 14px 8px; position: relative; }
-  .header .badge { background: color-mix(in srgb, var(--zb-accent) 16%, transparent); box-shadow: none; }
+  .header .badge { background: color-mix(in srgb, var(--c, var(--zb-accent)) 16%, transparent); box-shadow: none; }
   .header .stats { color: var(--secondary-text-color); }
 
   /* ── Text tabs ── */
@@ -698,31 +761,38 @@ const STYLE = `
   .blink { animation: zb-blink 1.5s ease-in-out infinite; }
   @keyframes zb-flow { to { stroke-dashoffset: -14; } }
   @keyframes zb-blink { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
-  @keyframes zb-pulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
-  @keyframes zb-run { from { background-position: 0 0; } to { background-position: 14px 0; } }
+  @keyframes zb-run { from { background-position: 0 50%, 0 50%; } to { background-position: 24px 50%, 0 50%; } }
+  @keyframes zb-pkt { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -100; } }
+  @keyframes zb-ping { from { transform: scale(1); opacity: .9; } to { transform: scale(2.2); opacity: 0; } }
   @media (prefers-reduced-motion: reduce) {
-    .flow, .blink, .strip .packets { animation: none !important; }
+    .flow, .blink, .strip, .scene .pkt, .scene .ping { animation: none !important; }
+    .scene .pkt, .scene .ping { display: none; }
     .tile, .chevron { transition: none; }
   }
 `;
 
-// The mini card (a 40 px badge, the title, its status and the zoom button, then chips or a health bar), the look of
-// the other ha-* mini cards.
+// The mini card: the full card's banner (the title, the device count and the status on its sky, the zoom button at
+// its top right), then chips or a health bar. Without the illustration: a 40 px badge, the title, its status and the
+// zoom button in one line, the look of the other ha-* mini cards.
 const MINI_STYLE = `
-  ha-card { padding: 12px; }
+  ha-card.classic { padding: 12px; }
+  .mbody { display: flex; flex-direction: column; gap: 4px; padding: 8px 12px 10px; }
+  .mbody.bar { gap: 6px; }
   .mini { display: flex; align-items: flex-start; gap: 10px; }
   .mini .badge { color: var(--c); background: color-mix(in srgb, var(--c) 16%, transparent); box-shadow: none; }
   .body { flex: 1; min-width: 0; min-height: 40px; display: flex; flex-direction: column; justify-content: center; gap: 4px; }
   .body.bar { gap: 6px; }
   .mhd { display: flex; align-items: center; gap: 8px; }
+  .mhd .title { flex: 0 1 auto; min-width: 0; }
+  .mhd .zoom { margin-left: auto; }
   .title { flex: 1 1 0; min-width: 5ch; font-size: 16px; font-weight: 500; line-height: 1.25; color: var(--primary-text-color);
            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .mst { flex: 0 1 auto; min-width: 0; font-size: 11px; font-weight: 500; color: var(--c); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .zoom { all: unset; flex: none; cursor: pointer; width: 24px; height: 24px; margin: -4px -4px -4px 0; border-radius: 50%;
+  .mini .zoom { all: unset; flex: none; cursor: pointer; width: 24px; height: 24px; margin: -4px -4px -4px 0; border-radius: 50%;
           display: grid; place-items: center; color: var(--secondary-text-color); }
-  .zoom ha-icon { --mdc-icon-size: 16px; }
-  .zoom:hover { background: color-mix(in srgb, var(--zb-idle) 16%, transparent); color: var(--primary-text-color); }
-  .zoom:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 1px; }
+  .mini .zoom ha-icon { --mdc-icon-size: 16px; }
+  .mini .zoom:hover { background: color-mix(in srgb, var(--zb-idle) 16%, transparent); color: var(--primary-text-color); }
+  .mini .zoom:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 1px; }
   .rs { display: flex; flex-wrap: wrap; gap: 2px 4px; margin-left: -4px; }
   .rs:empty { display: none; }
   /* A chip is plain (icon and text) until it needs a look: then a tinted pill. */
@@ -748,7 +818,10 @@ const MINI_STYLE = `
 const ZOOM_STYLE = `
   .banner { --scene-shift: 26px; }
   .zoom { all: unset; position: absolute; z-index: 2; top: 5px; right: 5px; cursor: pointer; width: 24px; height: 24px; border-radius: 50%;
-          display: grid; place-items: center; color: #6b4a14; background: rgba(255,255,255,.55); box-shadow: inset 0 0 0 1px rgba(255,255,255,.7); }
+          display: grid; place-items: center; color: #33506b; background: rgba(255,255,255,.55); box-shadow: inset 0 0 0 1px rgba(255,255,255,.7);
+          -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+  .zoom:hover { background: rgba(255,255,255,.75); }
+  .zoom.on-night:hover { background: rgba(255,255,255,.22); }
   .zoom.on-night { color: #ffffff; background: rgba(255,255,255,.12); box-shadow: inset 0 0 0 1px rgba(255,255,255,.2); }
   .zoom.plain { color: var(--secondary-text-color); background: none; box-shadow: inset 0 0 0 1px var(--divider-color, rgba(127,127,127,.3)); top: 18px; right: 12px; }
   .zoom ha-icon { --mdc-icon-size: 16px; }
@@ -763,6 +836,36 @@ const ZOOM_STYLE = `
 const TABS = ["devices", "map"];
 const FILTERS = ["all", "routers", "end_devices", "attention"];
 const FILTER_OF = { all: () => true, routers: (n) => n.role === "router", end_devices: (n) => n.role === "end", attention: (n) => !!n.issue };
+
+
+// The status pill's place, decided by measurement after each render and each new width (the same rule on every
+// card): on the title row, right after the title, only when the whole title and the pill's whole label fit there;
+// otherwise on its own line under the statistics (one line), the title whole on its row (cut only when it does not
+// fit alone). When the label is still cut there, or the text block leaves the banner or runs over its ground strip,
+// the pill keeps its dot alone, on the title row (its label stays in title and aria-label). A card of 200 px or less
+// shows the dot alone anyway (CSS), beside the title.
+const placePill = (head, row, ground) => {
+  if (!head) return;
+  head.removeAttribute("data-wrap");
+  head.removeAttribute("data-dot");
+  const pill = row.querySelector(":scope > .hpill");
+  const text = pill?.querySelector(".txt");
+  if (!text?.getBoundingClientRect || text.getBoundingClientRect().width <= 1) return;
+  const name = row.querySelector(":scope > .name, :scope > .title");
+  const zoom = row.querySelector(":scope > .zoom");
+  const gap = parseFloat(getComputedStyle(row).columnGap) || 0;
+  const title = name ? (name.scrollWidth > name.clientWidth ? name.scrollWidth : name.getBoundingClientRect().width) + gap : 0;
+  const room = row.getBoundingClientRect().width - (zoom ? zoom.getBoundingClientRect().width + gap : 0);
+  if (title + pill.getBoundingClientRect().width <= room + 0.5) return;
+  head.setAttribute("data-wrap", "");
+  const box = (row.closest(".titles") || row).getBoundingClientRect();
+  const frame = (ground ? ground.closest(".banner") : head).getBoundingClientRect();
+  const out = ground && (box.bottom > ground.getBoundingClientRect().top + 0.5 || box.top < frame.top - 0.5);
+  if (text.scrollWidth > text.clientWidth + 0.5 || out) {
+    head.removeAttribute("data-wrap");
+    head.setAttribute("data-dot", "");
+  }
+};
 
 class ZigbeeCard extends HTMLElement {
   constructor() {
@@ -838,6 +941,18 @@ class ZigbeeCard extends HTMLElement {
 
   connectedCallback() {
     (this._outsideWatch ??= watchOutside(this, (ev) => this._onOutside(ev))).on();
+    // A new width (or the web font loaded): the status pill is fitted again, in the next frame.
+    if (typeof ResizeObserver === "function") {
+      this._resize ??= new ResizeObserver((entries) => {
+        const w = Math.round(entries.at(-1).contentRect.width);
+        if (w === this._fitWidth) return;
+        this._fitWidth = w;
+        cancelAnimationFrame(this._fitFrame);
+        this._fitFrame = requestAnimationFrame(() => this._fitPill());
+      });
+      this._resize.observe(this);
+    }
+    if (typeof document !== "undefined") document.fonts?.ready?.then(() => this._fitPill());
     // The network is read again every `refresh_interval`; the relative times follow the clock.
     clearInterval(this._timer);
     this._timer = setInterval(() => {
@@ -849,6 +964,8 @@ class ZigbeeCard extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this._resize?.disconnect();
+    this._fitWidth = null;
     this._outsideWatch?.off();
     clearInterval(this._timer);
     // Left (another view, a conditional card hidden): the popup closes without anything else.
@@ -892,7 +1009,7 @@ class ZigbeeCard extends HTMLElement {
     const h = this._hass;
     const e = this._entry();
     const ids = this._watched || [];
-    return [h.language, h.locale, h.themes?.darkMode, e?.version, e?.error, Math.floor(this._now() / 60000), ...ids.map((id) => h.states?.[id])];
+    return [h.language, h.locale, h.themes?.darkMode, h.states?.["sun.sun"]?.state, e?.version, e?.error, Math.floor(this._now() / 60000), ...ids.map((id) => h.states?.[id])];
   }
 
   _update(sig) {
@@ -903,13 +1020,23 @@ class ZigbeeCard extends HTMLElement {
       this._html = html;
       morph(this.shadowRoot, html);
     }
+    this._fitPill();
+  }
+
+  // The status pill's place, on the banner, the classic header and the classic mini card's row (see placePill).
+  _fitPill() {
+    for (const row of this.shadowRoot?.querySelectorAll?.(".trow, .mhd") || []) {
+      const banner = row.closest(".banner");
+      placePill(row.matches(".mhd") ? row : banner || row.closest(".header"), row, banner?.querySelector(".strip"));
+    }
   }
 
   _night() {
     const mode = this._config.illustration_theme;
     if (mode === "night") return true;
     if (mode === "day") return false;
-    return !!this._hass?.themes?.darkMode;
+    // Automatic: night when the sun is down (sun.sun) or with the dark theme.
+    return this._hass?.states?.["sun.sun"]?.state === "below_horizon" || !!this._hass?.themes?.darkMode;
   }
 
   _weak() {
@@ -983,12 +1110,36 @@ class ZigbeeCard extends HTMLElement {
     return net.attention ? "warn" : "ok";
   }
 
+  // The scene's state: a device offline (or the coordinator) shows red, another issue an amber weak link.
+  _sceneState(net) {
+    if (!net) return "ok";
+    if (net.offline || (net.coordinator && !net.coordinator.available)) return "off";
+    return net.attention ? "warn" : "ok";
+  }
+
+  // The header icon's status, as the scene: red with a device offline, amber with another issue, green when all is
+  // well, grey while there is nothing to show.
+  _badgeLevel(net) {
+    if (!net) return "idle";
+    return { off: "alert", warn: "warn", ok: "ok" }[this._sceneState(net)];
+  }
+
+  // The status pill: a dot and the network's status (Healthy, N issues, Loading, Unavailable) in the colour of the
+  // header icon; its label stays in its title and for screen readers when a very narrow card shows the dot alone.
+  _pill(net) {
+    const problem = net ? null : this._problem();
+    const text = problem ? this._t(problem === "loading" ? "st_loading" : "st_unavailable") : net.attention ? this._p("issues", net.attention) : this._t("healthy");
+    const level = problem && problem !== "loading" ? "alert" : this._badgeLevel(net);
+    return `<span class="chip hpill ${level}" title="${esc(text)}" aria-label="${esc(text)}"><span class="dot"></span><span class="txt">${esc(text)}</span></span>`;
+  }
+
+  // The title and the status pill on one row (the pill right after the title), the statistics under them.
   _titleBlock(net, tab) {
     const stats = this._stats(net, tab);
-    return `<div class="badge">${icon("mdi:zigbee")}</div>
+    return `<div class="badge ${this._badgeLevel(net)}">${icon("mdi:zigbee")}</div>
       <div class="titles">
-        <div class="name">${esc(this._title())}</div>
-        ${stats.length ? `<div class="stats">${stats.map((s) => `<span>${esc(s)}</span>`).join("")}</div>` : ""}
+        <div class="trow"><div class="name">${esc(this._title())}</div>${this._pill(net)}</div>
+        ${stats.length ? `<div class="stats" title="${esc(stats.join(" · "))}">${stats.map((s) => `<span>${esc(s)}</span>`).join("")}</div>` : ""}
       </div>`;
   }
 
@@ -996,8 +1147,8 @@ class ZigbeeCard extends HTMLElement {
     if (this._config.illustration === false) return `<div class="header">${this._titleBlock(net, tab)}${this._zoomButton("plain")}</div>`;
     const night = this._night();
     return `<div class="banner${night ? " night" : ""}">
-      ${sceneSvg(this._level(net))}
-      <div class="strip"><div class="packets"></div></div>
+      ${sceneSvg(this._sceneState(net))}
+      <div class="strip g-mesh zig"></div>
       <div class="head">${this._titleBlock(net, tab)}</div>
       ${this._zoomButton(night ? "on-night" : "")}
     </div>`;
@@ -1295,7 +1446,7 @@ class ZigbeeMiniCard extends ZigbeeCard {
   }
 
   getCardSize() {
-    return this._zoomed ? super.getCardSize() : 2;
+    return this._zoomed ? super.getCardSize() : this._config?.illustration === false ? 2 : 3;
   }
 
   getGridOptions() {
@@ -1329,11 +1480,24 @@ class ZigbeeMiniCard extends ZigbeeCard {
     return this._zoomed ? ZOOM_STYLE : "";
   }
 
+  // Folded, the banner's sky holds the device count and the network's status.
+  _stats(net, tab) {
+    if (this._zoomed) return super._stats(net, tab);
+    if (!net) return [];
+    // The status is in the pill: the devices count alone.
+    return [this._p("devices", net.total)];
+  }
+
+  _badgeLevel(net) {
+    if (!this._zoomed && this._problem_ && this._problem_ !== "loading") return "alert";
+    return super._badgeLevel(net);
+  }
+
   _zoomButton(cls = "") {
     if (this._config.zoom === false) return "";
     const z = this._zoomed;
     const label = esc(this._t(z ? "zoom_out" : "zoom_in"));
-    return `<button class="zoom ${cls}" title="${label}" aria-label="${label}" aria-expanded="${z}">${icon(z ? "mdi:magnify-minus-outline" : "mdi:magnify-plus-outline")}</button>`;
+    return `<button class="zoom ${cls}" title="${label}" aria-label="${label}" aria-expanded="${z}">${icon(z ? "mdi:arrow-collapse" : "mdi:arrow-expand")}</button>`;
   }
 
   _miniChips(net) {
@@ -1376,25 +1540,31 @@ class ZigbeeMiniCard extends ZigbeeCard {
 
   _render() {
     if (this._zoomed) return super._render();
-    const problem = this._problem();
+    const problem = (this._problem_ = this._problem());
     const net = problem ? null : (this._net_ = this._net());
     if (net) this._watched = net.devices.flatMap((n) => [n.batteryId, n.mainId]).filter(Boolean);
     const level = problem && problem !== "loading" ? "alert" : this._level(net);
-    const status = problem ? "" : net.attention ? this._p("issues", net.attention) : this._t("healthy");
     const bar = this._config.mini_layout === "bar";
     const body = problem
       ? `<div class="${problem === "loading" ? "msub" : "msub warning"}">${esc(this._t(problem))}</div>`
       : bar
         ? this._miniBar(net)
         : `<div class="rs">${this._miniChips(net)}</div>`;
-    return `<style>${STYLE}${MINI_STYLE}</style>
+    if (this._config.illustration !== false) {
+      return `<style>${STYLE}${MINI_STYLE}${ZOOM_STYLE}</style>
       <ha-card>
+        ${this._header(net, null)}
+        <div class="mbody${bar ? " bar" : ""}">${body}</div>
+      </ha-card>`;
+    }
+    return `<style>${STYLE}${MINI_STYLE}</style>
+      <ha-card class="classic">
         <div class="mini ${level}">
-          <div class="badge">${icon("mdi:zigbee")}</div>
+          <div class="badge ${this._badgeLevel(net)}">${icon("mdi:zigbee")}</div>
           <div class="body${bar ? " bar" : ""}">
             <div class="mhd">
               <span class="title">${esc(this._title())}</span>
-              ${status ? `<span class="mst"><span class="pt">${esc(status)}</span></span>` : ""}
+              ${this._pill(net)}
               ${this._zoomButton()}
             </div>
             ${body}

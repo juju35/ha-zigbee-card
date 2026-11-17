@@ -34,12 +34,15 @@ const encode = (dir, out, width) => {
 };
 
 export const GIFS = [
-  // The banner: the mesh flowing from the coordinator, the weak node blinking, the packets running on the strip.
-  { name: "banner", tag: "zigbee-card", width: 480, banner: true, config: { illustration_theme: "day" } },
+  // The banner, one per state: a device offline (the lock red, blinking), a weak link (amber, dashed) and all well;
+  // the packets running along the links and on the strip.
+  { name: "banner", tag: "zigbee-card", width: 480, banner: true, config: {} },
+  { name: "banner-weak", tag: "zigbee-card", width: 480, banner: true, config: { exclude: ["Garage door"] } },
+  { name: "banner-ok", tag: "zigbee-card", width: 480, banner: true, config: {}, hass: { healthy: true } },
   // The same banner at night.
-  { name: "night", tag: "zigbee-card", width: 480, banner: true, config: { illustration_theme: "night" } },
+  { name: "night", tag: "zigbee-card", width: 480, banner: true, config: { illustration_theme: "night" }, hass: { healthy: true } },
   // The Map tab: the links to the routers flowing, the nodes with an issue blinking.
-  { name: "map", tag: "zigbee-card", width: 480, banner: false, config: { illustration_theme: "day", default_tab: "map" } },
+  { name: "map", tag: "zigbee-card", width: 480, banner: false, config: { default_tab: "map" } },
 ];
 
 if (process.argv[1]?.endsWith("animations.mjs")) {
@@ -48,7 +51,7 @@ if (process.argv[1]?.endsWith("animations.mjs")) {
     for (const theme of ["light", "dark"]) {
       const suffix = theme === "dark" ? "-dark" : "";
       const page = await openPage(browser, { theme, width: g.width, label: `${g.name}${suffix}` });
-      await mountCard(page, { tag: g.tag, config: g.config, dark: theme === "dark" });
+      await mountCard(page, { tag: g.tag, config: g.config, dark: theme === "dark", hass: g.hass });
       await page.waitForTimeout(300);
       const clip = await cardClip(page, g.width, { banner: g.banner });
       const dir = mkdtempSync(join(tmpdir(), "zb-frames-"));

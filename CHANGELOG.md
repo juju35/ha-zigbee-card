@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.0 - 2026-11-17
+
+### Features
+- Illustrated header, 90 px on the full card and on the mini card: the title on the left over the amber gradient, on the right a house with the Zigbee coordinator in its middle and six devices around it (bulb, plug, thermometer, motion sensor, lock, blind), packets running along their links, and a 10 px amber mesh strip edge to edge at the bottom, dots running along it (day and night looks).
+- The scene follows the network: all well, a weak link (amber, dashed) when a device needs attention, a device offline (the lock red, blinking, its link lost).
+- The round `mdi:zigbee` icon takes the status colour on the full and the mini card, day and night: green when all is well, amber with an issue, red with a device offline or an error, grey while loading.
+- Automatic night look when the sun is down (`sun.sun`) or with the dark theme of Home Assistant; `illustration_theme: day | night` still forces it. `prefers-reduced-motion` stops the packets, the ping and the strip.
+- The mini card shows the same banner with « 42 devices » on its sky and its expand button (`mdi:arrow-expand` / `mdi:arrow-collapse`, 24 px, frosted) in the top right corner, then its chips or health bar; `illustration: false` keeps the one-line layout.
+- Status pill right after the title on every header (full and mini card, illustrated or classic): Healthy, « 3 issues », Loading or Unavailable, in the colour of the icon, frosted on the banner day and night; placed by measurement in every language: right after the title only when the whole title and the whole label fit there, otherwise on its own line under the statistics (then kept to one line); when the label would still be cut or leave the banner above its strip, and at 200 px or less, its dot alone. Below 380 px the mesh picture is drawn smaller (about 70 %), so that the title stays whole and the pill keeps its label. New strings in every language.
+
 ## 1.0.0 - 2026-11-16
 
 ### Features
