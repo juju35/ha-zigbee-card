@@ -619,6 +619,9 @@ const STYLE = `
   .stats { display: flex; flex-wrap: wrap; max-height: 32px; overflow: hidden; margin-left: -10px; font-size: 12px; line-height: 16px; color: var(--sky-muted); }
   .stats span { white-space: nowrap; }
   .stats span::before { content: "·"; display: inline-block; width: 10px; text-align: center; }
+  /* Narrower cards: the mesh is drawn smaller (about 70 %), so that the title stays whole and the status pill keeps its
+     label beside it. */
+  @container (max-width: 380px) { .banner { --scene-w: 80px; } }
   /* A narrow card keeps the gradient and the strip for its texts: no scene. */
   @container (max-width: 300px) {
     .banner .scene { display: none; }
