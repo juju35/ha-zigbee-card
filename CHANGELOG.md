@@ -7,7 +7,8 @@
 - The scene follows the network: all well, a weak link (amber, dashed) when a device needs attention, a device offline (the lock red, blinking, its link lost).
 - The round `mdi:zigbee` icon takes the status colour on the full and the mini card, day and night: green when all is well, amber with an issue, red with a device offline or an error, grey while loading.
 - Automatic night look when the sun is down (`sun.sun`) or with the dark theme of Home Assistant; `illustration_theme: day | night` still forces it. `prefers-reduced-motion` stops the packets, the ping and the strip.
-- The mini card shows the same banner with « 42 devices · 3 issues » on its sky and its zoom button at the top right, then its chips or health bar; `illustration: false` keeps the one-line layout.
+- The mini card shows the same banner with « 42 devices » on its sky and its expand button (`mdi:arrow-expand` / `mdi:arrow-collapse`, 24 px, frosted) in the top right corner, then its chips or health bar; `illustration: false` keeps the one-line layout.
+- Status pill right after the title on every header (full and mini card, illustrated or classic): Healthy, « 3 issues », Loading or Unavailable, in the colour of the icon, frosted on the banner day and night; under the statistics on a narrow card, its dot alone at 200 px or less. New strings in every language.
 
 ## 1.0.0 - 2026-11-16
 

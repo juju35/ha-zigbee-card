@@ -592,7 +592,24 @@ const STYLE = `
            background: rgba(255,255,255,.62); box-shadow: inset 0 0 0 1px rgba(176,122,0,.2); }
   .night .badge { background: rgba(255,255,255,.12); box-shadow: inset 0 0 0 1px rgba(255,255,255,.14); }
   .badge ha-icon { --mdc-icon-size: 24px; }
-  .titles { flex: 1 1 0; min-width: 0; overflow: hidden; }
+  .titles { flex: 1 1 0; min-width: 0; overflow: hidden; display: flex; flex-direction: column; }
+  /* The title row: the title gives way first (4 characters and its ellipsis kept), the pill 8 px after it keeps its
+     whole label, at most 51 % of the row. */
+  .trow { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .trow .name { flex: 0 1 auto; min-width: 4ch; }
+  .hpill { flex: none; max-width: 51%; }
+  .banner .hpill { background: color-mix(in srgb, var(--c) 18%, rgba(255,255,255,.78)); color: color-mix(in srgb, var(--c) 45%, #0d2a45); }
+  .banner.night .hpill { background: color-mix(in srgb, var(--c) 30%, rgba(8,18,38,.55)); color: color-mix(in srgb, var(--c) 35%, #ffffff); }
+  /* A narrow card: the pill on its own line under the statistics (kept to one line); 200 px or less: its dot alone. */
+  @container (max-width: 260px) {
+    .trow { display: contents; }
+    .titles > .stats { order: 2; max-height: 16px; }
+    .titles .hpill { order: 3; align-self: flex-start; max-width: 100%; margin-top: 2px; }
+  }
+  @container (max-width: 200px) {
+    .hpill { padding: 3px; }
+    .hpill .txt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  }
   .name { font-size: 16px; font-weight: 500; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* The statistics on two lines at most: a part that does not fit goes to a third line, clipped away; the "·" that
      starts a line sits in the negative margin, clipped too. */
@@ -760,6 +777,10 @@ const MINI_STYLE = `
   .body { flex: 1; min-width: 0; min-height: 40px; display: flex; flex-direction: column; justify-content: center; gap: 4px; }
   .body.bar { gap: 6px; }
   .mhd { display: flex; align-items: center; gap: 8px; }
+  .mhd .title { flex: 0 1 auto; min-width: 4ch; }
+  .mhd .zoom { margin-left: auto; }
+  /* A narrow mini card: the pill on its own line under the title. */
+  @container (max-width: 260px) { .mhd { flex-wrap: wrap; row-gap: 2px; } .mhd .hpill { order: 3; max-width: 100%; } }
   .title { flex: 1 1 0; min-width: 5ch; font-size: 16px; font-weight: 500; line-height: 1.25; color: var(--primary-text-color);
            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .mst { flex: 0 1 auto; min-width: 0; font-size: 11px; font-weight: 500; color: var(--c); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -793,7 +814,10 @@ const MINI_STYLE = `
 const ZOOM_STYLE = `
   .banner { --scene-shift: 26px; }
   .zoom { all: unset; position: absolute; z-index: 2; top: 5px; right: 5px; cursor: pointer; width: 24px; height: 24px; border-radius: 50%;
-          display: grid; place-items: center; color: #6b4a14; background: rgba(255,255,255,.55); box-shadow: inset 0 0 0 1px rgba(255,255,255,.7); }
+          display: grid; place-items: center; color: #33506b; background: rgba(255,255,255,.55); box-shadow: inset 0 0 0 1px rgba(255,255,255,.7);
+          -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+  .zoom:hover { background: rgba(255,255,255,.75); }
+  .zoom.on-night:hover { background: rgba(255,255,255,.22); }
   .zoom.on-night { color: #ffffff; background: rgba(255,255,255,.12); box-shadow: inset 0 0 0 1px rgba(255,255,255,.2); }
   .zoom.plain { color: var(--secondary-text-color); background: none; box-shadow: inset 0 0 0 1px var(--divider-color, rgba(127,127,127,.3)); top: 18px; right: 12px; }
   .zoom ha-icon { --mdc-icon-size: 16px; }
@@ -1043,11 +1067,21 @@ class ZigbeeCard extends HTMLElement {
     return { off: "alert", warn: "warn", ok: "ok" }[this._sceneState(net)];
   }
 
+  // The status pill: a dot and the network's status (Healthy, N issues, Loading, Unavailable) in the colour of the
+  // header icon; its label stays in its title and for screen readers when a very narrow card shows the dot alone.
+  _pill(net) {
+    const problem = net ? null : this._problem();
+    const text = problem ? this._t(problem === "loading" ? "st_loading" : "st_unavailable") : net.attention ? this._p("issues", net.attention) : this._t("healthy");
+    const level = problem && problem !== "loading" ? "alert" : this._badgeLevel(net);
+    return `<span class="chip hpill ${level}" title="${esc(text)}"><span class="dot"></span><span class="txt">${esc(text)}</span></span>`;
+  }
+
+  // The title and the status pill on one row (the pill right after the title), the statistics under them.
   _titleBlock(net, tab) {
     const stats = this._stats(net, tab);
     return `<div class="badge ${this._badgeLevel(net)}">${icon("mdi:zigbee")}</div>
       <div class="titles">
-        <div class="name">${esc(this._title())}</div>
+        <div class="trow"><div class="name">${esc(this._title())}</div>${this._pill(net)}</div>
         ${stats.length ? `<div class="stats">${stats.map((s) => `<span>${esc(s)}</span>`).join("")}</div>` : ""}
       </div>`;
   }
@@ -1393,7 +1427,8 @@ class ZigbeeMiniCard extends ZigbeeCard {
   _stats(net, tab) {
     if (this._zoomed) return super._stats(net, tab);
     if (!net) return [];
-    return [this._p("devices", net.total), net.attention ? this._p("issues", net.attention) : this._t("healthy")];
+    // The status is in the pill: the devices count alone.
+    return [this._p("devices", net.total)];
   }
 
   _badgeLevel(net) {
@@ -1405,7 +1440,7 @@ class ZigbeeMiniCard extends ZigbeeCard {
     if (this._config.zoom === false) return "";
     const z = this._zoomed;
     const label = esc(this._t(z ? "zoom_out" : "zoom_in"));
-    return `<button class="zoom ${cls}" title="${label}" aria-label="${label}" aria-expanded="${z}">${icon(z ? "mdi:magnify-minus-outline" : "mdi:magnify-plus-outline")}</button>`;
+    return `<button class="zoom ${cls}" title="${label}" aria-label="${label}" aria-expanded="${z}">${icon(z ? "mdi:arrow-collapse" : "mdi:arrow-expand")}</button>`;
   }
 
   _miniChips(net) {
@@ -1452,7 +1487,6 @@ class ZigbeeMiniCard extends ZigbeeCard {
     const net = problem ? null : (this._net_ = this._net());
     if (net) this._watched = net.devices.flatMap((n) => [n.batteryId, n.mainId]).filter(Boolean);
     const level = problem && problem !== "loading" ? "alert" : this._level(net);
-    const status = problem ? "" : net.attention ? this._p("issues", net.attention) : this._t("healthy");
     const bar = this._config.mini_layout === "bar";
     const body = problem
       ? `<div class="${problem === "loading" ? "msub" : "msub warning"}">${esc(this._t(problem))}</div>`
@@ -1473,7 +1507,7 @@ class ZigbeeMiniCard extends ZigbeeCard {
           <div class="body${bar ? " bar" : ""}">
             <div class="mhd">
               <span class="title">${esc(this._title())}</span>
-              ${status ? `<span class="mst"><span class="pt">${esc(status)}</span></span>` : ""}
+              ${this._pill(net)}
               ${this._zoomButton()}
             </div>
             ${body}
