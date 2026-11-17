@@ -1009,7 +1009,7 @@ class ZigbeeCard extends HTMLElement {
     const h = this._hass;
     const e = this._entry();
     const ids = this._watched || [];
-    return [h.language, h.locale, h.themes?.darkMode, h.states?.["sun.sun"]?.state, e?.version, e?.error, Math.floor(this._now() / 60000), ...ids.map((id) => h.states?.[id])];
+    return [h.language, h.locale, h.themes?.darkMode, e?.version, e?.error, Math.floor(this._now() / 60000), ...ids.map((id) => h.states?.[id])];
   }
 
   _update(sig) {
@@ -1035,8 +1035,8 @@ class ZigbeeCard extends HTMLElement {
     const mode = this._config.illustration_theme;
     if (mode === "night") return true;
     if (mode === "day") return false;
-    // Automatic: night when the sun is down (sun.sun) or with the dark theme.
-    return this._hass?.states?.["sun.sun"]?.state === "below_horizon" || !!this._hass?.themes?.darkMode;
+    // Automatic: Home Assistant's dark theme alone (a light theme keeps the day picture after sunset).
+    return !!this._hass?.themes?.darkMode;
   }
 
   _weak() {
