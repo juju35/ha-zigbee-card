@@ -24,7 +24,7 @@ The cards read the network straight from ZHA, the same data as its network visua
 ## Features
 
 - Two cards: a full **Zigbee Card** and a compact **Zigbee Mini Card**, of type `custom:zigbee-card` and `custom:zigbee-mini-card`
-- An illustrated, animated banner as header (90 px, on the full and the mini card): an amber gradient, a house with the Zigbee coordinator in its middle and its devices around it (bulb, plug, thermometer, motion sensor, lock, blind), packets running along their links and dots along the mesh strip at the bottom. It follows the network: all well, a **weak link** (amber, dashed) when a device needs attention, a **device offline** (red, blinking, its link lost). The round Zigbee icon takes the status colour: green, amber or red. A night look when the sun is down (`sun.sun`) or with the dark theme of Home Assistant; motion stops with *reduce motion*
+- An illustrated, animated banner as header (90 px, on the full and the mini card): an amber gradient, a house with the Zigbee coordinator in its middle and its devices around it (bulb, plug, thermometer, motion sensor, lock, blind), packets running along their links and dots along the mesh strip at the bottom. It follows the network: all well, a **weak link** (amber, dashed) when a device needs attention, a **device offline** (red, blinking, its link lost). The round Zigbee icon takes the status colour: green, amber or red. A night look with the dark theme of Home Assistant (day with a light one); motion stops with *reduce motion*
 - The header shows the network's name with « ZHA · Channel 15 · 42 devices » (Devices tab) or « 42 devices · 14 routers » (Map tab)
 - **Devices** and **Map** text tabs right under the banner
 - **Devices** tab: status chips (« 41 / 42 online », « 1 offline », « 1 low battery », and when the network was read), the filters **All**, **Routers**, **End devices** and **Attention** with their counts, and a two-column grid of tiles, one per device: its icon (from its main entity), its name, a state line such as « Router · LQI 230 », « LQI 156 · battery 82% », « Offline · 3 h », « Weak signal · LQI 61 » or « Battery 12% », four signal bars from the LQI and a status dot
@@ -135,7 +135,7 @@ zoom: true
 | `refresh_interval` | both | `60` | Seconds between two reads of the network (10 at least) |
 | `show_status` | both | `true` | The status chips under the tabs |
 | `illustration` | both | `true` | The animated banner as header (full and mini card); `false` for a classic header with a round icon |
-| `illustration_theme` | both | `auto` | `auto` (night when the sun is down, from `sun.sun`, or with the dark theme of Home Assistant), `day` or `night` |
+| `illustration_theme` | both | `auto` | `auto` (follows the Home Assistant theme: night with a dark theme, day with a light theme), `day` or `night` |
 | `exclude` | both | None | **YAML only.** A list of devices to leave out, by IEEE address or name |
 | `mini_layout` | mini | `chips` | The mini card's second line: `chips` or `bar` (a health bar with a summary) |
 | `zoom` | mini | `true` | Zoom button: unfolds the full card and back (`false` removes it). The full card's options above apply to the unfolded view and are also set in the mini card's visual editor |
@@ -198,7 +198,7 @@ The popup of a device, at the top of the card:
 |---|---|
 | <img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/screenshots/card-detail.png" alt="device popup" width="400"> | <img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/screenshots/card-detail-dark.png" alt="device popup, dark theme" width="400"> |
 
-Night banner (`illustration_theme: night`, or automatic when the sun is down or with the dark theme):
+Night banner (`illustration_theme: night`, or automatic with a dark theme):
 
 | Light | Dark |
 |---|---|

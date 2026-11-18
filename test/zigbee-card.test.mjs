@@ -289,13 +289,14 @@ test("illustration: night by the dark theme or forced, classic header without it
   const classic = (await card(zb.ZigbeeCard, { illustration: false }))._render();
   assert.doesNotMatch(classic, /class="scene"/);
   assert.match(classic, /<div class="header"><div class="badge alert">/);
-  // Automatic: the sun down or the dark theme.
+  // Automatic: the dark theme alone, the sun left aside.
   const sun = (state, dark) => {
     const h = mockHass({ dark });
     h.states = { ...h.states, "sun.sun": { state } };
     return h;
   };
-  assert.match((await card(zb.ZigbeeCard, {}, sun("below_horizon", false)))._render(), /class="banner night"/);
+  assert.doesNotMatch((await card(zb.ZigbeeCard, {}, sun("below_horizon", false)))._render(), /banner night/);
+  assert.match((await card(zb.ZigbeeCard, {}, sun("below_horizon", true)))._render(), /class="banner night"/);
   assert.match((await card(zb.ZigbeeCard, {}, sun("above_horizon", true)))._render(), /class="banner night"/);
   assert.doesNotMatch((await card(zb.ZigbeeCard, {}, sun("above_horizon", false)))._render(), /banner night/);
   assert.doesNotMatch((await card(zb.ZigbeeCard, { illustration_theme: "day" }, sun("below_horizon", true)))._render(), /banner night/);
