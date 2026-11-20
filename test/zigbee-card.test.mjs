@@ -470,30 +470,6 @@ test("zigbee2mqtt: the integration follows the option, else ZHA when loaded, els
   assert.equal(zb.sourceOf({}, {}), "zha");
 });
 
-test("zigbee2mqtt card: subscribes once, asks a raw network map, renders the Zigbee2MQTT header", async () => {
-  const hass = mockZ2mHass();
-  const el = new zb.ZigbeeCard();
-  el._now = () => NOW;
-  el._update = () => {};
-  el.setConfig({ type: "custom:zigbee-card", default_tab: "map" });
-  el._hass = hass;
-  el._fetch();
-  await wait(1200);
-  el._fetch();
-  assert.equal(hass.published.length, 1);
-  assert.equal(hass.published[0].data.topic, "zigbee2mqtt/bridge/request/networkmap");
-  assert.deepEqual(JSON.parse(hass.published[0].data.payload), { type: "raw", routes: false });
-  await wait(1200);
-  el._fetch();
-  assert.equal(hass.published.length, 1, "one scan per networkmap_interval");
-  const html = el._render();
-  assert.match(html, /42 devices/);
-  el._tab = "devices";
-  assert.match(el._render(), /Zigbee2MQTT · Channel 15 · 42 devices/);
-  assert.equal(el._net().byIeee.get(el._net().devices.find((d) => d.name === "Front door").parent).name, "Office plug");
-  el._unlisten();
-});
-
 test("zigbee2mqtt card: no bridge, no MQTT, not an administrator", async () => {
   const e = zb.sourceEntry(mockZ2mHass(), "z2m:x");
   assert.equal(e.data, null);
@@ -520,8 +496,9 @@ test("zigbee2mqtt card: no bridge, no MQTT, not an administrator", async () => {
 
 // Fake timers for the subscription's lifecycle: run by hand, oldest first.
 const timers = [];
-const fake = load(["fetchZ2m", "releaseZ2m", "sourceEntry", "ZigbeeCard"], {
-  setTimeout: (fn, ms) => timers.push({ fn, ms }) && timers.length,
+const delays = [];
+const fake = load(["fetchZ2m", "releaseZ2m", "sourceEntry", "ZigbeeCard", "z2mDevices", "buildNetwork"], {
+  setTimeout: (fn, ms) => delays.push(ms) && timers.push({ fn, ms }) && timers.length,
   clearTimeout: (id) => id && timers[id - 1] && (timers[id - 1].fn = null),
 });
 const runTimers = () => {
@@ -601,10 +578,72 @@ test("zigbee2mqtt card: a card off the page does not take the subscription again
   el._fetch();
   await wait(0);
   assert.equal(calls.sub, 0);
+  // Put on the page: it reads the network at once (Home Assistant set its state before).
   el.isConnected = true;
-  el._fetch();
+  el.connectedCallback();
   await wait(0);
   assert.equal(calls.sub, 1);
   el._unlisten();
   assert.equal(el._unlisten, null);
+});
+
+test("zigbee2mqtt card: asks a raw network map after a random delay, renders the Zigbee2MQTT header", async () => {
+  timers.length = 0;
+  delays.length = 0;
+  const hass = mockZ2mHass();
+  const el = new fake.ZigbeeCard();
+  el._now = () => NOW;
+  el._update = () => {};
+  el.setConfig({ type: "custom:zigbee-card", default_tab: "map" });
+  el._hass = hass;
+  el._fetch();
+  assert.equal(hass.published.length, 0, "not before the network is in");
+  await wait(0);
+  runTimers();
+  await wait(0);
+  // Its rendering (a second after the messages) fetched again: the scan, after its random delay.
+  assert.ok(delays.some((ms) => ms > 1000 && ms <= 15000));
+  assert.equal(hass.published.length, 1);
+  assert.equal(hass.published[0].data.topic, "zigbee2mqtt/bridge/request/networkmap");
+  assert.deepEqual(JSON.parse(hass.published[0].data.payload), { type: "raw", routes: false });
+  runTimers();
+  el._fetch();
+  runTimers();
+  assert.equal(hass.published.length, 1, "one scan per networkmap_interval");
+  assert.match(el._render(), /42 devices/);
+  el._tab = "devices";
+  assert.match(el._render(), /Zigbee2MQTT · Channel 15 · 42 devices/);
+  const net = el._net();
+  assert.equal(net.byIeee.get(net.devices.find((d) => d.name === "Front door").parent).name, "Office plug");
+  el._unlisten();
+});
+
+test("zigbee2mqtt: a scan asked by another browser in the meantime is not asked again", async () => {
+  timers.length = 0;
+  const hass = mockZ2mHass();
+  const calls = z2mConn(hass);
+  hass.callService = async (d, sv, data) => hass.published.push(data);
+  fake.fetchZ2m(hass, "zigbee2mqtt", 3600e3, {});
+  await wait(0);
+  fake.fetchZ2m(hass, "zigbee2mqtt", 3600e3, {});
+  // Another browser's request goes through the broker before this one's delay is over.
+  calls.cbs[0]({ topic: "zigbee2mqtt/bridge/request/networkmap", payload: '{"type":"raw","routes":false}' });
+  runTimers();
+  await wait(0);
+  assert.equal(hass.published.length, 0);
+});
+
+test("zigbee2mqtt: HA devices from the registry list by identifier, live name and area from hass.devices", () => {
+  const z = mockZ2m();
+  const e = { z: { devices: null, info: null, avail: new Map(), state: new Map(), map: null } };
+  for (const m of z.retained) zb.z2mMessage(e, "zigbee2mqtt", m);
+  const hass = mockZ2mHass();
+  const list = Object.values(z.devices);
+  // A device of another integration with the same name is never taken.
+  list.unshift({ id: "hue_1", name: "Front door", area_id: "garage", identifiers: [["hue", "x"]] });
+  hass.devices.dev_e2 = { ...hass.devices.dev_e2, name_by_user: "Main door", area_id: "office" };
+  const front = zb.z2mDevices(e.z, hass, list).find((d) => d.friendly_name === undefined && d.name === "Front door");
+  assert.equal(front.device_reg_id, "dev_e2");
+  assert.equal(front.user_given_name, "Main door");
+  assert.equal(front.area_id, "office");
 });

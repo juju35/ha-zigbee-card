@@ -361,17 +361,22 @@ const Z2M_WAIT_MS = 10000;
 const Z2M_THROTTLE_MS = 1000;
 // A failed subscription (MQTT not loaded yet, a lost connection) is tried again after this.
 const Z2M_RETRY_MS = 30000;
+// A scan is asked after a random delay (1 to 15 s): the browsers of a home that load or fall due together see the
+// first one's request and keep from asking again.
+const Z2M_JITTER_MS = 14000;
+const Z2M_REG_MS = 60000;
 
-// The HA device of each Zigbee2MQTT device: its `mqtt` identifier `zigbee2mqtt_<ieee>`, else (no identifiers in the
-// registry) its name.
+// The HA device of each Zigbee2MQTT device, by its `mqtt` identifier `zigbee2mqtt_<ieee>`: from the device registry
+// (`config/device_registry/list`, read with the network) or `hass.devices` when it carries the identifiers; by name
+// only when neither gives identifiers. Its name and area come from `hass.devices` when it is there (live).
 const _z2mReg = new WeakMap();
-const z2mRegistry = (hass) => {
-  const devs = hass?.devices;
-  if (!devs) return null;
-  let idx = _z2mReg.get(devs);
+const z2mRegistry = (hass, list) => {
+  const key = list || hass?.devices;
+  if (!key) return null;
+  let idx = _z2mReg.get(key);
   if (!idx) {
     idx = { ieee: new Map(), name: new Map() };
-    for (const d of Object.values(devs)) {
+    for (const d of Array.isArray(key) ? key : Object.values(key)) {
       for (const [dom, id] of d?.identifiers || []) {
         const m = dom === "mqtt" && /^zigbee2mqtt_(0x[0-9a-f]+)$/i.exec(String(id));
         if (m) idx.ieee.set(m[1].toLowerCase(), d);
@@ -379,7 +384,7 @@ const z2mRegistry = (hass) => {
       // By name only when the registry gives no identifiers: never a device of another integration.
       if (!d?.identifiers) for (const n of [d?.name_by_user, d?.name]) if (n && !idx.name.has(n)) idx.name.set(n, d);
     }
-    _z2mReg.set(devs, idx);
+    _z2mReg.set(key, idx);
   }
   return idx;
 };
@@ -390,7 +395,7 @@ const z2mSeen = (v) => (typeof v === "number" ? v / 1000 : v || null);
 
 // The Zigbee2MQTT network in the shape of `zha/devices`: the bridge's devices, their availability and last state
 // (link quality, last seen), and their neighbor tables from the last raw network map.
-const z2mDevices = (z, hass) => {
+const z2mDevices = (z, hass, list = null) => {
   const nbrs = new Map();
   const heard = new Map();
   const seen = new Map();
@@ -403,7 +408,7 @@ const z2mDevices = (z, hass) => {
     if (lqi !== null) heard.set(src, Math.max(heard.get(src) ?? 0, lqi));
   }
   for (const n of z.map?.nodes || []) if (n?.ieeeAddr && n.lastSeen) seen.set(String(n.ieeeAddr), n.lastSeen);
-  const reg = z2mRegistry(hass);
+  const reg = z2mRegistry(hass, list);
   const coord = z.info?.coordinator;
   return (Array.isArray(z.devices) ? z.devices : [])
     .filter((d) => d?.ieee_address && !d.disabled)
@@ -411,7 +416,8 @@ const z2mDevices = (z, hass) => {
       const ieee = String(d.ieee_address);
       const name = d.friendly_name || ieee;
       const st = z.state.get(name) || {};
-      const hd = reg?.ieee.get(ieee.toLowerCase()) || reg?.name.get(name) || null;
+      const found = reg?.ieee.get(ieee.toLowerCase()) || reg?.name.get(name) || null;
+      const hd = (found && hass?.devices?.[found.id]) || found;
       const isCoord = d.type === "Coordinator";
       return {
         ieee,
@@ -449,8 +455,13 @@ const z2mMessage = (e, topic, m) => {
   if (rest === "bridge/devices") z.devices = Array.isArray(p) ? p : [];
   else if (rest === "bridge/info") z.info = p && typeof p === "object" ? p : null;
   else if (rest === "bridge/response/networkmap") {
+    e.mapAsked = Math.max(e.mapAsked ?? 0, Date.now());
     if (p?.status !== "ok" || p.data?.type !== "raw" || !p.data.value) return false;
     z.map = p.data.value;
+  } else if (rest === "bridge/request/networkmap") {
+    // A scan asked by any client (another browser, the Zigbee2MQTT frontend): this one does not ask again.
+    e.mapAsked = Date.now();
+    return false;
   } else if (rest.startsWith("bridge/")) return false;
   else if (rest.endsWith("/availability")) z.avail.set(rest.slice(0, -13), (p && typeof p === "object" ? p.state : p) === "online");
   else if (p && typeof p === "object" && !Array.isArray(p) && !/\/(set|get)(\/|$)/.test(rest)) {
@@ -489,10 +500,26 @@ const fetchZ2m = (hass, topic, mapEveryMs, card) => {
     const live = () => e.gen === gen;
     e.z = { devices: null, info: null, avail: new Map(), state: new Map(), map: null };
     e.mapAsked = 0;
+    e.regAt = 0;
+    e.reg = null;
+    clearTimeout(e.mapTimer);
+    e.mapTimer = null;
     let timer = null;
     const onMsg = (m) => {
       if (!live() || !z2mMessage(e, topic, m)) return;
       if (e.z.devices) {
+        // The device registry with the first devices, then at most once a minute when they change (a new device).
+        if (String(m.topic).endsWith("/bridge/devices") && Date.now() - (e.regAt ?? 0) >= Z2M_REG_MS && typeof hass.callWS === "function") {
+          e.regAt = Date.now();
+          Promise.resolve(hass.callWS({ type: "config/device_registry/list" }))
+            .then((list) => {
+              if (live() && Array.isArray(list)) {
+                e.reg = list;
+                z2mBump(e);
+              }
+            })
+            .catch(() => {});
+        }
         e.data = e.z.devices;
         const ni = e.z.info?.network;
         e.settings = ni ? { settings: { network_info: { channel: ni.channel, pan_id: num(ni.pan_id) !== null ? Number(ni.pan_id).toString(16) : ni.pan_id } } } : null;
@@ -521,11 +548,20 @@ const fetchZ2m = (hass, topic, mapEveryMs, card) => {
       }
     }, Z2M_WAIT_MS);
   }
-  if (mapEveryMs > 0 && e.data && Date.now() - e.mapAsked >= mapEveryMs && typeof hass.callService === "function") {
-    e.mapAsked = Date.now();
-    Promise.resolve(
-      hass.callService("mqtt", "publish", { topic: `${topic}/bridge/request/networkmap`, payload: JSON.stringify({ type: "raw", routes: false }) }),
-    ).catch(() => {});
+  const due = () => mapEveryMs > 0 && e.data && Date.now() - e.mapAsked >= mapEveryMs;
+  if (due() && !e.mapTimer && typeof hass.callService === "function") {
+    const gen = e.gen;
+    e.mapTimer = setTimeout(
+      () => {
+        e.mapTimer = null;
+        if (e.gen !== gen || !due()) return;
+        e.mapAsked = Date.now();
+        Promise.resolve(
+          hass.callService("mqtt", "publish", { topic: `${topic}/bridge/request/networkmap`, payload: JSON.stringify({ type: "raw", routes: false }) }),
+        ).catch(() => {});
+      },
+      1000 + Math.random() * Z2M_JITTER_MS,
+    );
   }
   return null;
 };
@@ -541,7 +577,8 @@ const releaseZ2m = (hass, topic, card) => {
     e.gen = (e.gen ?? 0) + 1;
     e.sub = null;
     clearTimeout(e.wait);
-    Object.assign(e, { data: null, settings: null, error: null, z: null });
+    clearTimeout(e.mapTimer);
+    Object.assign(e, { data: null, settings: null, error: null, z: null, reg: null, mapTimer: null });
     if (!sub) return;
     sub.then((unsub) => typeof unsub === "function" && unsub()).catch(() => {});
   }, 60000);
@@ -1186,6 +1223,8 @@ class ZigbeeCard extends HTMLElement {
       this._fetch();
       this.hass = this._hass;
     }, 15000);
+    // Home Assistant hands the state over before the card is on the page: the network is read once it is.
+    if (this._hass && this._config) this._fetch();
     this._update();
   }
 
@@ -1254,7 +1293,7 @@ class ZigbeeCard extends HTMLElement {
   _net() {
     const e = this._entry();
     if (!e?.data) return null;
-    return buildNetwork(e.z ? z2mDevices(e.z, this._hass) : e.data, this._hass, this._config);
+    return buildNetwork(e.z ? z2mDevices(e.z, this._hass, e.reg) : e.data, this._hass, this._config);
   }
 
   // What the render depends on: language, dark mode, the ZHA data, the minute and the battery and main entities.

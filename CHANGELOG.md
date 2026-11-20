@@ -5,6 +5,7 @@
 ### Features
 - **Zigbee2MQTT** support ([#8](https://github.com/juju35/ha-zigbee-card/issues/8)): the same cards on a Zigbee2MQTT network, read from its MQTT topics through Home Assistant (`mqtt/subscribe` on `<base_topic>/#`): devices, channel and PAN id, availability, link quality and last seen, live; the mesh map from a raw network map scan asked when the card loads and every `networkmap_interval` (3600 s, `0` never); battery, area and device page from the Home Assistant device.
 - New options `integration` (`auto`, `zha`, `zigbee2mqtt`; `auto` takes ZHA when it is loaded, else Zigbee2MQTT when MQTT is), `base_topic` (`zigbee2mqtt`) and `networkmap_interval`, in the visual editor; the header reads « Zigbee2MQTT · Channel 15 · 42 devices ».
+- The browsers of a home share the network map scans: each asks after a random delay, and not when another client's request or answer went by; HA devices are matched from the device registry by their `zigbee2mqtt_<ieee>` identifier.
 - New messages when no Zigbee2MQTT answers under the base topic or the MQTT integration is missing, in every language.
 
 ## 1.1.1 - 2026-11-18

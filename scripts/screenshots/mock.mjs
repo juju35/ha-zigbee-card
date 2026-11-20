@@ -250,7 +250,8 @@ export const mockZ2mHass = ({ language = "en", dark = false, healthy = false, er
   return {
     states: z.states,
     entities: z.entities,
-    devices: z.devices,
+    // `hass.devices` as the display registry may give it: without identifiers (they come from the registry list).
+    devices: Object.fromEntries(Object.entries(z.devices).map(([id, { identifiers, ...d }]) => [id, d])),
     areas: Object.fromEntries(Object.entries(AREAS).map(([area_id, name]) => [area_id, { area_id, name }])),
     language,
     locale: { language, time_format: "24", time_zone: "server" },
@@ -267,7 +268,8 @@ export const mockZ2mHass = ({ language = "en", dark = false, healthy = false, er
         return async () => subs.delete(cb);
       },
     },
-    callWS: async () => {
+    callWS: async (m) => {
+      if (m.type === "config/device_registry/list") return Object.values(z.devices);
       throw { code: "unknown_command" };
     },
     callService: async function (domain, service, data) {

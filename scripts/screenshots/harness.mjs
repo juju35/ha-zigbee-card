@@ -95,6 +95,7 @@ export const pageHass = ({ z2m = false, ...opts } = {}) => {
 export const mountCard = async (page, { tag, config, dark = false, hass = {}, clicks = [] }) => {
   await page.evaluate(
     ({ tag, config, hass }) => {
+      Math.random = () => 0;
       const el = document.createElement(tag);
       el.setConfig({ type: `custom:${tag}`, ...config });
       const zha = hass.__zha;
@@ -106,6 +107,7 @@ export const mountCard = async (page, { tag, config, dark = false, hass = {}, cl
           if (z2m && service === "publish" && data.topic.endsWith("/bridge/request/networkmap")) for (const cb of subs) cb(z2m.networkmap);
         },
         callWS: async (m) => {
+          if (z2m && m.type === "config/device_registry/list") return Object.values(z2m.devices);
           if (!zha || zha.error) throw { code: zha?.error || "unknown_command" };
           return m.type === "zha/devices" ? zha.devices : zha.settings;
         },
@@ -123,8 +125,9 @@ export const mountCard = async (page, { tag, config, dark = false, hass = {}, cl
     },
     { tag, config, hass: pageHass({ dark, ...hass }) },
   );
-  // Zigbee2MQTT renders a second after its messages, then again with its network map.
-  await page.waitForTimeout(hass.z2m ? 2600 : 100);
+  // Zigbee2MQTT renders a second after its messages, asks its network map a second later (no random delay here)
+  // and renders again a second after it.
+  await page.waitForTimeout(hass.z2m ? 3600 : 100);
   for (const sel of clicks)
     await page.evaluate((sel) => {
       const el = document.querySelector("#root > *");
