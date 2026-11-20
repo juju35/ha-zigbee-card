@@ -5,7 +5,8 @@ import vm from "node:vm";
 
 const read = (name) => readFileSync(new URL(`../src/${name}.js`, import.meta.url), "utf8");
 
-export const load = (names) => {
+// `extra`: bindings that replace the stubs (fake timers…).
+export const load = (names, extra = {}) => {
   class HTMLElement {
     attachShadow() {
       // Listeners kept by type, so tests can dispatch events to them.
@@ -72,6 +73,7 @@ export const load = (names) => {
     Date,
     Promise,
     out: null,
+    ...extra,
   };
   vm.createContext(context);
   vm.runInContext(`{\n${read("strings")}\n${read("zigbee-card")}\nout = ({ ${names.join(", ")} });\n}`, context);

@@ -517,3 +517,94 @@ test("zigbee2mqtt card: no bridge, no MQTT, not an administrator", async () => {
   zb.sourceEntry(hass, "z2m:z2m-other").error = "no_z2m";
   assert.match(el._render(), /base topic &quot;z2m-other&quot;/);
 });
+
+// Fake timers for the subscription's lifecycle: run by hand, oldest first.
+const timers = [];
+const fake = load(["fetchZ2m", "releaseZ2m", "sourceEntry", "ZigbeeCard"], {
+  setTimeout: (fn, ms) => timers.push({ fn, ms }) && timers.length,
+  clearTimeout: (id) => id && timers[id - 1] && (timers[id - 1].fn = null),
+});
+const runTimers = () => {
+  while (timers.length) timers.shift().fn?.();
+};
+const z2mConn = (hass) => {
+  const calls = { sub: 0, unsub: 0, cbs: [] };
+  hass.connection = {
+    subscribeMessage: async (cb) => {
+      calls.sub++;
+      calls.cbs.push(cb);
+      if (hass.failWith) throw { code: hass.failWith };
+      for (const m of mockZ2m().retained) cb(m);
+      return () => calls.unsub++;
+    },
+  };
+  return calls;
+};
+
+test("zigbee2mqtt subscription: shared, released a minute after the last card, late messages ignored", async () => {
+  timers.length = 0;
+  const hass = mockZ2mHass();
+  const calls = z2mConn(hass);
+  const a = {};
+  const b = {};
+  fake.fetchZ2m(hass, "zigbee2mqtt", 0, a);
+  fake.fetchZ2m(hass, "zigbee2mqtt", 0, b);
+  await wait(0);
+  assert.equal(calls.sub, 1);
+  const e = fake.sourceEntry(hass, "z2m:zigbee2mqtt");
+  assert.equal(e.data.length, 43);
+  fake.releaseZ2m(hass, "zigbee2mqtt", a);
+  runTimers();
+  assert.equal(calls.unsub, 0, "another card still uses it");
+  fake.releaseZ2m(hass, "zigbee2mqtt", b);
+  runTimers();
+  await wait(0);
+  assert.equal(calls.unsub, 1);
+  assert.equal(e.data, null);
+  // A message of the ended subscription, before its unsubscribe lands: ignored, no crash.
+  calls.cbs[0](mockZ2m().retained[2]);
+  assert.equal(e.data, null);
+  fake.fetchZ2m(hass, "zigbee2mqtt", 0, a);
+  await wait(0);
+  assert.equal(calls.sub, 2);
+  assert.equal(e.data.length, 43);
+});
+
+test("zigbee2mqtt subscription: tried again after a failure (MQTT loaded late)", async () => {
+  timers.length = 0;
+  const hass = mockZ2mHass();
+  const calls = z2mConn(hass);
+  hass.failWith = "unknown_command";
+  fake.fetchZ2m(hass, "zigbee2mqtt", 0, {});
+  await wait(0);
+  const e = fake.sourceEntry(hass, "z2m:zigbee2mqtt");
+  assert.equal(e.error, "no_mqtt");
+  fake.fetchZ2m(hass, "zigbee2mqtt", 0, {});
+  assert.equal(calls.sub, 1, "not before the retry delay");
+  hass.failWith = null;
+  e.at -= 31000;
+  fake.fetchZ2m(hass, "zigbee2mqtt", 0, {});
+  await wait(0);
+  assert.equal(calls.sub, 2);
+  assert.equal(e.error, null);
+});
+
+test("zigbee2mqtt card: a card off the page does not take the subscription again", async () => {
+  timers.length = 0;
+  const hass = mockZ2mHass();
+  const calls = z2mConn(hass);
+  const el = new fake.ZigbeeCard();
+  el._update = () => {};
+  el.setConfig({ type: "custom:zigbee-card", base_topic: "detached" });
+  el.isConnected = false;
+  el._hass = hass;
+  el._fetch();
+  await wait(0);
+  assert.equal(calls.sub, 0);
+  el.isConnected = true;
+  el._fetch();
+  await wait(0);
+  assert.equal(calls.sub, 1);
+  el._unlisten();
+  assert.equal(el._unlisten, null);
+});

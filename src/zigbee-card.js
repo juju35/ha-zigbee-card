@@ -359,8 +359,11 @@ const Z2M_ERRORS = { unauthorized: "not_admin", unknown_command: "no_mqtt" };
 // No `bridge/devices` (retained) this long after subscribing: no Zigbee2MQTT under this base topic.
 const Z2M_WAIT_MS = 10000;
 const Z2M_THROTTLE_MS = 1000;
+// A failed subscription (MQTT not loaded yet, a lost connection) is tried again after this.
+const Z2M_RETRY_MS = 30000;
 
-// The HA device of each Zigbee2MQTT device: its `mqtt` identifier `zigbee2mqtt_<ieee>`, else its name.
+// The HA device of each Zigbee2MQTT device: its `mqtt` identifier `zigbee2mqtt_<ieee>`, else (no identifiers in the
+// registry) its name.
 const _z2mReg = new WeakMap();
 const z2mRegistry = (hass) => {
   const devs = hass?.devices;
@@ -373,7 +376,8 @@ const z2mRegistry = (hass) => {
         const m = dom === "mqtt" && /^zigbee2mqtt_(0x[0-9a-f]+)$/i.exec(String(id));
         if (m) idx.ieee.set(m[1].toLowerCase(), d);
       }
-      for (const n of [d?.name_by_user, d?.name]) if (n && !idx.name.has(n)) idx.name.set(n, d);
+      // By name only when the registry gives no identifiers: never a device of another integration.
+      if (!d?.identifiers) for (const n of [d?.name_by_user, d?.name]) if (n && !idx.name.has(n)) idx.name.set(n, d);
     }
     _z2mReg.set(devs, idx);
   }
@@ -473,17 +477,21 @@ const fetchZ2m = (hass, topic, mapEveryMs, card) => {
     e.users.add(card);
     clearTimeout(e.drop);
   }
-  if (!e.sub && !e.error) {
+  if (!e.sub && (!e.error || Date.now() - e.at >= Z2M_RETRY_MS)) {
     const conn = hass.connection;
     if (typeof conn?.subscribeMessage !== "function") {
       e.error = "load_error";
+      e.at = Date.now();
       return null;
     }
+    // Each subscription has its own generation: the messages and the failure of an ended one are ignored.
+    const gen = (e.gen = (e.gen ?? 0) + 1);
+    const live = () => e.gen === gen;
     e.z = { devices: null, info: null, avail: new Map(), state: new Map(), map: null };
     e.mapAsked = 0;
     let timer = null;
     const onMsg = (m) => {
-      if (!z2mMessage(e, topic, m)) return;
+      if (!live() || !z2mMessage(e, topic, m)) return;
       if (e.z.devices) {
         e.data = e.z.devices;
         const ni = e.z.info?.network;
@@ -493,16 +501,21 @@ const fetchZ2m = (hass, topic, mapEveryMs, card) => {
       // A busy network sends many states: one render a second at most.
       timer ??= setTimeout(() => {
         timer = null;
-        z2mBump(e);
+        if (live()) z2mBump(e);
       }, Z2M_THROTTLE_MS);
     };
     e.sub = Promise.resolve(conn.subscribeMessage(onMsg, { type: "mqtt/subscribe", topic: `${topic}/#` })).catch((err) => {
+      if (!live()) return null;
       e.error = Z2M_ERRORS[err?.code] || "load_error";
+      e.at = Date.now();
       e.sub = null;
+      clearTimeout(e.wait);
       z2mBump(e);
+      return null;
     });
+    clearTimeout(e.wait);
     e.wait = setTimeout(() => {
-      if (!e.data && !e.error) {
+      if (live() && !e.data && !e.error) {
         e.error = "no_z2m";
         z2mBump(e);
       }
@@ -523,11 +536,13 @@ const releaseZ2m = (hass, topic, card) => {
   if (!e?.users?.delete(card) || e.users.size) return;
   clearTimeout(e.drop);
   e.drop = setTimeout(() => {
-    if (e.users.size || !e.sub) return;
+    if (e.users.size) return;
     const sub = e.sub;
+    e.gen = (e.gen ?? 0) + 1;
     e.sub = null;
     clearTimeout(e.wait);
     Object.assign(e, { data: null, settings: null, error: null, z: null });
+    if (!sub) return;
     sub.then((unsub) => typeof unsub === "function" && unsub()).catch(() => {});
   }, 60000);
 };
@@ -1207,6 +1222,8 @@ class ZigbeeCard extends HTMLElement {
 
   _fetch() {
     if (this._source() === "zigbee2mqtt") {
+      // Home Assistant may still hand its state to a card off the page: it does not hold the subscription.
+      if (this.isConnected === false) return;
       const topic = baseTopic(this._config);
       const map = num(this._config.networkmap_interval) ?? DEFAULTS.networkmap_interval;
       fetchZ2m(this._hass, topic, map > 0 ? Math.max(300, map) * 1000 : 0, this);
@@ -1216,10 +1233,12 @@ class ZigbeeCard extends HTMLElement {
         const fn = () => this._hass && this._config && (this.hass = this._hass);
         e.listeners.add(fn);
         this._listening = e;
+        const hass = this._hass;
         this._unlisten = () => {
           e.listeners.delete(fn);
-          releaseZ2m(this._hass, topic, this);
+          releaseZ2m(hass, topic, this);
           this._listening = null;
+          this._unlisten = null;
         };
       }
       return;

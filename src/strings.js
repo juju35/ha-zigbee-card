@@ -1821,7 +1821,7 @@ const STRINGS = {
     integration_zha: "ZHA",
     integration_zigbee2mqtt: "Zigbee2MQTT",
     base_topic: "Zigbee2MQTT alaptéma",
-    networkmap_interval: "Hálózati térkép beolvasása (s, 0: soha)",
+    networkmap_interval: "Hálózati térkép beolvasása ennyi másodpercenként (0: soha)",
   },
   sk: {
     network: "Sieť Zigbee",
