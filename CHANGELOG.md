@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.1 - 2026-11-20
+
+### Fixes
+- A click elsewhere on the page folds the « Show all » device list back, as the other collapsible sections do; the pending status-pill fit is dropped when the card leaves the page.
+
 ## 1.2.0 - 2026-11-20
 
 ### Features
