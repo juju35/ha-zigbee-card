@@ -1152,10 +1152,15 @@ class ZigbeeCard extends HTMLElement {
       }
     };
     // A click elsewhere on the page closes the device popup (and only that: a zoomed mini card stays zoomed).
+    // A click elsewhere also folds the « Show all » list back (the charter's auto-collapse).
     this._onOutside = (ev) => {
-      if (this._detail && !inDialog(ev)) {
+      if (inDialog(ev)) return;
+      if (this._detail) {
         this._detailClosedBy = ev;
         this._closeDetail(false);
+      } else if (this._showAll) {
+        this._showAll = false;
+        this._update(this._sig);
       }
     };
   }
@@ -1230,6 +1235,7 @@ class ZigbeeCard extends HTMLElement {
 
   disconnectedCallback() {
     this._resize?.disconnect();
+    if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(this._fitFrame);
     this._fitWidth = null;
     this._outsideWatch?.off();
     clearInterval(this._timer);

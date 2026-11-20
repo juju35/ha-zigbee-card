@@ -123,6 +123,9 @@ test("filters, show all and the tabs", async () => {
   el._click({ composedPath: () => [{ dataset: { action: "more" } }], detail: 1 });
   assert.equal(count(el._render(), /class="tile /g), 14);
   assert.match(el._render(), /Show less/);
+  // A click elsewhere on the page folds the list back.
+  el._onOutside({ composedPath: () => [] });
+  assert.equal(count(el._render(), /class="tile /g), 12);
   el._click({ composedPath: () => [{ dataset: { tab: "map" } }], detail: 1 });
   assert.match(el._render(), /class="mesh"/);
   assert.equal((await card(zb.ZigbeeCard, { default_filter: "end_devices", max_devices: 50 }))._render().match(/class="tile /g).length, 28);
