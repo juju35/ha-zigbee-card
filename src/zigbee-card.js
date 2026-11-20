@@ -477,7 +477,18 @@ const z2mBump = (e) => {
   for (const fn of e.listeners) fn();
 };
 
-// Zigbee2MQTT under `topic`: one subscription to `<topic>/#` for every card of the page, kept while a card uses
+// The topics read, not the whole `<topic>/#`: four of the bridge (not its logs, events, groups, extensions or
+// definitions), the devices' states and availability one level under the base topic (not their `set` / `get`
+// requests), and the exact topics of the devices named with a slash (`z2mNamedTopics`, as `bridge/devices` lists them).
+const Z2M_BRIDGE = ["bridge/devices", "bridge/info", "bridge/response/networkmap", "bridge/request/networkmap"];
+const z2mTopics = (topic) => [...Z2M_BRIDGE.map((t) => `${topic}/${t}`), `${topic}/+`, `${topic}/+/availability`];
+const z2mNamedTopics = (topic, devices) =>
+  (Array.isArray(devices) ? devices : [])
+    .map((d) => String(d?.friendly_name ?? ""))
+    .filter((n) => n.includes("/") && !/[+#]/.test(n))
+    .flatMap((n) => [`${topic}/${n}`, `${topic}/${n}/availability`]);
+
+// Zigbee2MQTT under `topic`: one set of subscriptions (z2mTopics) for every card of the page, kept while a card uses
 // it; a raw network map is asked when the last one is older than `mapEveryMs` (0: never).
 const fetchZ2m = (hass, topic, mapEveryMs, card) => {
   const e = sourceEntry(hass, `z2m:${topic}`);
@@ -505,8 +516,19 @@ const fetchZ2m = (hass, topic, mapEveryMs, card) => {
     clearTimeout(e.mapTimer);
     e.mapTimer = null;
     let timer = null;
+    // Every subscription of this generation, by topic: ended together (e.sub resolves to the function ending them).
+    const subs = new Map();
+    const endAll = () => {
+      for (const p of subs.values()) p.then((unsub) => typeof unsub === "function" && unsub()).catch(() => {});
+    };
+    const subscribe = (t) => {
+      if (!subs.has(t)) subs.set(t, Promise.resolve(conn.subscribeMessage((m) => onMsg(m), { type: "mqtt/subscribe", topic: t })));
+      return subs.get(t);
+    };
     const onMsg = (m) => {
       if (!live() || !z2mMessage(e, topic, m)) return;
+      // The devices named with a slash are not one level under the base topic: their own topics, once known.
+      if (String(m.topic).endsWith("/bridge/devices")) for (const t of z2mNamedTopics(topic, e.z.devices)) subscribe(t).catch(() => {});
       if (e.z.devices) {
         // The device registry with the first devices, then at most once a minute when they change (a new device).
         if (String(m.topic).endsWith("/bridge/devices") && Date.now() - (e.regAt ?? 0) >= Z2M_REG_MS && typeof hass.callWS === "function") {
@@ -531,7 +553,14 @@ const fetchZ2m = (hass, topic, mapEveryMs, card) => {
         if (live()) z2mBump(e);
       }, Z2M_THROTTLE_MS);
     };
-    e.sub = Promise.resolve(conn.subscribeMessage(onMsg, { type: "mqtt/subscribe", topic: `${topic}/#` })).catch((err) => {
+    e.sub = Promise.all(z2mTopics(topic).map(subscribe)).then(
+      () => endAll,
+      (err) => {
+        endAll();
+        throw err;
+      },
+    );
+    e.sub = e.sub.catch((err) => {
       if (!live()) return null;
       e.error = Z2M_ERRORS[err?.code] || "load_error";
       e.at = Date.now();
@@ -1136,7 +1165,8 @@ class ZigbeeCard extends HTMLElement {
     this._filter = null;
     this._detail = null;
     this._showAll = false;
-    this._attnOpen = true;
+    // « Needs attention » starts folded, as every collapsible section of the ha-* cards.
+    this._attnOpen = false;
     this._nbrsOpen = false;
     this.shadowRoot.addEventListener("click", (ev) => this._click(ev));
     this.shadowRoot.addEventListener("keydown", (ev) => {
@@ -1152,10 +1182,16 @@ class ZigbeeCard extends HTMLElement {
       }
     };
     // A click elsewhere on the page closes the device popup (and only that: a zoomed mini card stays zoomed).
+    // A click elsewhere also folds the « Show all » list and « Needs attention » back (the charter's auto-collapse).
     this._onOutside = (ev) => {
-      if (this._detail && !inDialog(ev)) {
+      if (inDialog(ev)) return;
+      if (this._detail) {
         this._detailClosedBy = ev;
         this._closeDetail(false);
+      } else if (this._showAll || this._attnOpen) {
+        this._showAll = false;
+        this._attnOpen = false;
+        this._update(this._sig);
       }
     };
   }
@@ -1230,6 +1266,7 @@ class ZigbeeCard extends HTMLElement {
 
   disconnectedCallback() {
     this._resize?.disconnect();
+    if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(this._fitFrame);
     this._fitWidth = null;
     this._outsideWatch?.off();
     clearInterval(this._timer);

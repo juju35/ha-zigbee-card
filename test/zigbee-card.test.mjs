@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mockHass, mockNetwork, mockZ2m, mockZ2mHass, NOW } from "../scripts/screenshots/mock.mjs";
+import { mockHass, mockNetwork, mockZ2m, mockZ2mHass, mqttMatch, NOW } from "../scripts/screenshots/mock.mjs";
 import { load } from "./load.mjs";
 
 const zb = load([
@@ -123,13 +123,22 @@ test("filters, show all and the tabs", async () => {
   el._click({ composedPath: () => [{ dataset: { action: "more" } }], detail: 1 });
   assert.equal(count(el._render(), /class="tile /g), 14);
   assert.match(el._render(), /Show less/);
+  // A click elsewhere on the page folds the list back.
+  el._onOutside({ composedPath: () => [] });
+  assert.equal(count(el._render(), /class="tile /g), 12);
   el._click({ composedPath: () => [{ dataset: { tab: "map" } }], detail: 1 });
   assert.match(el._render(), /class="mesh"/);
   assert.equal((await card(zb.ZigbeeCard, { default_filter: "end_devices", max_devices: 50 }))._render().match(/class="tile /g).length, 28);
 });
 
 test("the map tab: mesh, legend, issues, channel and PAN, rows of the devices needing attention", async () => {
-  const html = (await card(zb.ZigbeeCard, { default_tab: "map" }))._render();
+  const el = await card(zb.ZigbeeCard, { default_tab: "map" });
+  el._update = () => {};
+  // « Needs attention » starts folded (the charter), opens on its header, folds back on a click elsewhere.
+  assert.match(el._render(), /data-action="attn" aria-expanded="false"/);
+  assert.equal(count(el._render(), /class="row /g), 0);
+  el._click({ composedPath: () => [{ dataset: { action: "attn" } }], detail: 1 });
+  const html = el._render();
   assert.match(html, /<span>42 devices<\/span><span>14 routers<\/span>/);
   assert.match(html, /3 issues/);
   assert.match(html, /93% healthy/);
@@ -145,6 +154,8 @@ test("the map tab: mesh, legend, issues, channel and PAN, rows of the devices ne
   assert.match(html, /Last seen 3 h ago · via Hallway plug/);
   assert.match(html, /LQI 94 · via Office plug/);
   assert.match(html, /Needs attention <span class="count">· 3/);
+  el._onOutside({ composedPath: () => [] });
+  assert.equal(count(el._render(), /class="row /g), 0);
 });
 
 test("the map's layout: routers on the inner ring, end devices on the outer one, near their parent", () => {
@@ -505,18 +516,54 @@ const runTimers = () => {
   while (timers.length) timers.shift().fn?.();
 };
 const z2mConn = (hass) => {
-  const calls = { sub: 0, unsub: 0, cbs: [] };
+  const calls = { sub: 0, unsub: 0, cbs: [], topics: [] };
   hass.connection = {
-    subscribeMessage: async (cb) => {
+    subscribeMessage: async (cb, msg) => {
       calls.sub++;
       calls.cbs.push(cb);
+      calls.topics.push(msg.topic);
       if (hass.failWith) throw { code: hass.failWith };
-      for (const m of mockZ2m().retained) cb(m);
+      for (const m of hass.retained ?? mockZ2m().retained) if (mqttMatch(msg.topic, m.topic)) cb(m);
       return () => calls.unsub++;
     },
   };
   return calls;
 };
+
+// The subscriptions of one base topic: four bridge topics, the states and the availability one level down.
+const Z2M_SUBS = 6;
+
+test("zigbee2mqtt subscription: the bridge's four topics and the devices' own, not the whole base topic", async () => {
+  timers.length = 0;
+  const hass = mockZ2mHass();
+  const calls = z2mConn(hass);
+  const z = mockZ2m();
+  const devices = JSON.parse(z.retained.find((m) => m.topic === "zigbee2mqtt/bridge/devices").payload);
+  devices[1].friendly_name = "kitchen/plug";
+  hass.retained = [
+    ...z.retained.filter((m) => m.topic !== "zigbee2mqtt/bridge/devices"),
+    { topic: "zigbee2mqtt/bridge/devices", payload: JSON.stringify(devices) },
+    { topic: "zigbee2mqtt/bridge/logging", payload: '{"level":"info","message":"x"}' },
+    { topic: "zigbee2mqtt/kitchen/plug", payload: '{"linkquality":77}' },
+  ];
+  fake.fetchZ2m(hass, "zigbee2mqtt", 0, {});
+  await wait(0);
+  const named = ["zigbee2mqtt/kitchen/plug", "zigbee2mqtt/kitchen/plug/availability"];
+  assert.deepEqual(calls.topics.filter((t) => !named.includes(t)), [
+    "zigbee2mqtt/bridge/devices",
+    "zigbee2mqtt/bridge/info",
+    "zigbee2mqtt/bridge/response/networkmap",
+    "zigbee2mqtt/bridge/request/networkmap",
+    "zigbee2mqtt/+",
+    "zigbee2mqtt/+/availability",
+  ]);
+  assert.ok(!calls.topics.includes("zigbee2mqtt/#"), "never the whole base topic");
+  // The device named with a slash: its exact topics, subscribed once the bridge listed it.
+  assert.deepEqual(calls.topics.filter((t) => named.includes(t)), named);
+  const e = fake.sourceEntry(hass, "z2m:zigbee2mqtt");
+  assert.equal(e.z.state.get("kitchen/plug").linkquality, 77);
+  assert.equal(mqttMatch("zigbee2mqtt/+", "zigbee2mqtt/bridge/logging"), false);
+});
 
 test("zigbee2mqtt subscription: shared, released a minute after the last card, late messages ignored", async () => {
   timers.length = 0;
@@ -527,7 +574,7 @@ test("zigbee2mqtt subscription: shared, released a minute after the last card, l
   fake.fetchZ2m(hass, "zigbee2mqtt", 0, a);
   fake.fetchZ2m(hass, "zigbee2mqtt", 0, b);
   await wait(0);
-  assert.equal(calls.sub, 1);
+  assert.equal(calls.sub, Z2M_SUBS);
   const e = fake.sourceEntry(hass, "z2m:zigbee2mqtt");
   assert.equal(e.data.length, 43);
   fake.releaseZ2m(hass, "zigbee2mqtt", a);
@@ -536,14 +583,14 @@ test("zigbee2mqtt subscription: shared, released a minute after the last card, l
   fake.releaseZ2m(hass, "zigbee2mqtt", b);
   runTimers();
   await wait(0);
-  assert.equal(calls.unsub, 1);
+  assert.equal(calls.unsub, Z2M_SUBS);
   assert.equal(e.data, null);
   // A message of the ended subscription, before its unsubscribe lands: ignored, no crash.
   calls.cbs[0](mockZ2m().retained[2]);
   assert.equal(e.data, null);
   fake.fetchZ2m(hass, "zigbee2mqtt", 0, a);
   await wait(0);
-  assert.equal(calls.sub, 2);
+  assert.equal(calls.sub, 2 * Z2M_SUBS);
   assert.equal(e.data.length, 43);
 });
 
@@ -557,12 +604,12 @@ test("zigbee2mqtt subscription: tried again after a failure (MQTT loaded late)",
   const e = fake.sourceEntry(hass, "z2m:zigbee2mqtt");
   assert.equal(e.error, "no_mqtt");
   fake.fetchZ2m(hass, "zigbee2mqtt", 0, {});
-  assert.equal(calls.sub, 1, "not before the retry delay");
+  assert.equal(calls.sub, Z2M_SUBS, "not before the retry delay");
   hass.failWith = null;
   e.at -= 31000;
   fake.fetchZ2m(hass, "zigbee2mqtt", 0, {});
   await wait(0);
-  assert.equal(calls.sub, 2);
+  assert.equal(calls.sub, 2 * Z2M_SUBS);
   assert.equal(e.error, null);
 });
 
@@ -582,7 +629,7 @@ test("zigbee2mqtt card: a card off the page does not take the subscription again
   el.isConnected = true;
   el.connectedCallback();
   await wait(0);
-  assert.equal(calls.sub, 1);
+  assert.equal(calls.sub, Z2M_SUBS);
   el._unlisten();
   assert.equal(el._unlisten, null);
 });

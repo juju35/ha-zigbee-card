@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.1 - 2026-11-20
+
+### Fixes
+- A click elsewhere on the page folds the « Show all » device list back, as the other collapsible sections do; the pending status-pill fit is dropped when the card leaves the page.
+- Map tab: the **Needs attention** list starts folded and folds back on a click elsewhere, as every collapsible section of the ha-* cards.
+
+### Performance
+- Zigbee2MQTT: the cards subscribe to the topics they read (four bridge topics, `<base_topic>/+`, `<base_topic>/+/availability`, and the exact topics of devices named with a slash) instead of the whole `<base_topic>/#`: the bridge's logs, events, groups and definitions and the `set` / `get` requests no longer reach every browser.
+
 ## 1.2.0 - 2026-11-20
 
 ### Features

@@ -242,7 +242,18 @@ export const mockZ2m = ({ healthy = false, topic = "zigbee2mqtt" } = {}) => {
   return { retained, networkmap, devices: haDevices, entities, states: zha.states };
 };
 
-// A hass on Zigbee2MQTT (no ZHA, MQTT loaded): `mqtt/subscribe` replays the retained messages, a published
+// Does an MQTT topic filter (`+` one level, `#` the rest) match a topic?
+export const mqttMatch = (filter, topic) => {
+  const f = filter.split("/");
+  const t = topic.split("/");
+  for (let i = 0; i < f.length; i++) {
+    if (f[i] === "#") return true;
+    if (i >= t.length || (f[i] !== "+" && f[i] !== t[i])) return false;
+  }
+  return f.length === t.length;
+};
+
+// A hass on Zigbee2MQTT (no ZHA, MQTT loaded): `mqtt/subscribe` replays the retained messages of its topic filter, a published
 // network map request is answered.
 export const mockZ2mHass = ({ language = "en", dark = false, healthy = false, error = null } = {}) => {
   const z = mockZ2m({ healthy });
@@ -263,9 +274,10 @@ export const mockZ2mHass = ({ language = "en", dark = false, healthy = false, er
       subscribeMessage: async (cb, msg) => {
         if (error) throw { code: error, message: error };
         if (msg.type !== "mqtt/subscribe") throw { code: "unknown_command" };
-        subs.add(cb);
-        for (const m of z.retained) cb(m);
-        return async () => subs.delete(cb);
+        const sub = { cb, topic: msg.topic };
+        subs.add(sub);
+        for (const m of z.retained) if (mqttMatch(msg.topic, m.topic)) cb(m);
+        return async () => subs.delete(sub);
       },
     },
     callWS: async (m) => {
@@ -274,7 +286,7 @@ export const mockZ2mHass = ({ language = "en", dark = false, healthy = false, er
     },
     callService: async function (domain, service, data) {
       this.published.push({ domain, service, data });
-      if (domain === "mqtt" && service === "publish" && data.topic.endsWith("/bridge/request/networkmap")) for (const cb of subs) cb(z.networkmap);
+      if (domain === "mqtt" && service === "publish" && data.topic.endsWith("/bridge/request/networkmap")) for (const { cb, topic } of subs) if (mqttMatch(topic, z.networkmap.topic)) cb(z.networkmap);
     },
     __z2m: { ...z, error },
   };
