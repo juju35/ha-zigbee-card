@@ -1165,7 +1165,8 @@ class ZigbeeCard extends HTMLElement {
     this._filter = null;
     this._detail = null;
     this._showAll = false;
-    this._attnOpen = true;
+    // « Needs attention » starts folded, as every collapsible section of the ha-* cards.
+    this._attnOpen = false;
     this._nbrsOpen = false;
     this.shadowRoot.addEventListener("click", (ev) => this._click(ev));
     this.shadowRoot.addEventListener("keydown", (ev) => {
@@ -1181,14 +1182,15 @@ class ZigbeeCard extends HTMLElement {
       }
     };
     // A click elsewhere on the page closes the device popup (and only that: a zoomed mini card stays zoomed).
-    // A click elsewhere also folds the « Show all » list back (the charter's auto-collapse).
+    // A click elsewhere also folds the « Show all » list and « Needs attention » back (the charter's auto-collapse).
     this._onOutside = (ev) => {
       if (inDialog(ev)) return;
       if (this._detail) {
         this._detailClosedBy = ev;
         this._closeDetail(false);
-      } else if (this._showAll) {
+      } else if (this._showAll || this._attnOpen) {
         this._showAll = false;
+        this._attnOpen = false;
         this._update(this._sig);
       }
     };

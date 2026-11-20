@@ -134,6 +134,10 @@ test("filters, show all and the tabs", async () => {
 test("the map tab: mesh, legend, issues, channel and PAN, rows of the devices needing attention", async () => {
   const el = await card(zb.ZigbeeCard, { default_tab: "map" });
   el._update = () => {};
+  // « Needs attention » starts folded (the charter), opens on its header, folds back on a click elsewhere.
+  assert.match(el._render(), /data-action="attn" aria-expanded="false"/);
+  assert.equal(count(el._render(), /class="row /g), 0);
+  el._click({ composedPath: () => [{ dataset: { action: "attn" } }], detail: 1 });
   const html = el._render();
   assert.match(html, /<span>42 devices<\/span><span>14 routers<\/span>/);
   assert.match(html, /3 issues/);
@@ -150,6 +154,8 @@ test("the map tab: mesh, legend, issues, channel and PAN, rows of the devices ne
   assert.match(html, /Last seen 3 h ago · via Hallway plug/);
   assert.match(html, /LQI 94 · via Office plug/);
   assert.match(html, /Needs attention <span class="count">· 3/);
+  el._onOutside({ composedPath: () => [] });
+  assert.equal(count(el._render(), /class="row /g), 0);
 });
 
 test("the map's layout: routers on the inner ring, end devices on the outer one, near their parent", () => {
