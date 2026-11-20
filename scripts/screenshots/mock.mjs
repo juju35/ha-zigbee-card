@@ -180,3 +180,102 @@ export const mockHass = ({ language = "en", dark = false, healthy = false, error
     __zha: { ...zha, error },
   };
 };
+
+// The same home on Zigbee2MQTT: the retained messages of `zigbee2mqtt/#` (bridge devices and info, availability,
+// last states with their link quality) and the answer to a raw network map request, built from the ZHA mock; the HA
+// devices carry their `mqtt` identifier `zigbee2mqtt_<ieee>`, the entities their device.
+const z2mIeee = (ieee) => `0x${ieee.replace(/:/g, "")}`;
+export const mockZ2m = ({ healthy = false, topic = "zigbee2mqtt" } = {}) => {
+  const zha = mockNetwork({ healthy });
+  const byIeee = new Map(zha.devices.map((d) => [d.ieee, d]));
+  const nameOf = (d) => (d.device_type === "Coordinator" ? "Coordinator" : d.user_given_name);
+  const msg = (t, payload) => ({ topic: `${topic}/${t}`, payload: JSON.stringify(payload), qos: 0, retain: true });
+  const devices = zha.devices.map((d) => ({
+    ieee_address: z2mIeee(d.ieee),
+    friendly_name: nameOf(d),
+    type: d.device_type,
+    network_address: d.nwk,
+    power_source: d.device_type === "EndDevice" ? "Battery" : "Mains (single phase)",
+    model_id: d.model,
+    manufacturer: d.manufacturer,
+    supported: true,
+    disabled: false,
+    interview_completed: true,
+    definition: d.device_type === "Coordinator" ? null : { model: d.model, vendor: d.manufacturer, description: d.model },
+  }));
+  const info = {
+    version: "2.6.3",
+    coordinator: { ieee_address: z2mIeee(zha.devices[0].ieee), type: "EmberZNet", meta: { revision: "8.0.2" } },
+    network: { channel: 15, pan_id: 0x4c7e, extended_pan_id: "0xaabbccddeeff0011" },
+    config: {},
+  };
+  const retained = [msg("bridge/state", { state: "online" }), msg("bridge/info", info), msg("bridge/devices", devices)];
+  for (const d of zha.devices) {
+    if (d.device_type === "Coordinator") continue;
+    retained.push(msg(`${nameOf(d)}/availability`, { state: d.available ? "online" : "offline" }));
+    if (d.lqi !== null) retained.push(msg(nameOf(d), { linkquality: d.lqi, last_seen: new Date(Date.parse(`${d.last_seen}+02:00`)).toISOString() }));
+  }
+  // The raw network map: each router's (and the coordinator's) neighbor table, a link per neighbor.
+  const REL = { Parent: 0, Child: 1, Sibling: 2 };
+  const links = [];
+  for (const d of zha.devices)
+    for (const n of d.neighbors) {
+      const o = byIeee.get(n.ieee);
+      links.push({
+        source: { ieeeAddr: z2mIeee(n.ieee), networkAddress: o?.nwk ?? 0 },
+        target: { ieeeAddr: z2mIeee(d.ieee), networkAddress: d.nwk },
+        linkquality: Number(n.lqi),
+        lqi: Number(n.lqi),
+        depth: Number(n.depth),
+        relationship: REL[n.relationship] ?? 3,
+        routes: [],
+      });
+    }
+  const nodes = zha.devices.map((d) => ({ ieeeAddr: z2mIeee(d.ieee), friendlyName: nameOf(d), type: d.device_type, networkAddress: d.nwk, failed: [] }));
+  const networkmap = { topic: `${topic}/bridge/response/networkmap`, payload: JSON.stringify({ data: { routes: false, type: "raw", value: { nodes, links } }, status: "ok" }), qos: 0, retain: false };
+  const haDevices = {};
+  const entities = {};
+  for (const d of zha.devices) {
+    haDevices[d.device_reg_id] = { id: d.device_reg_id, name: nameOf(d), name_by_user: null, area_id: d.area_id, identifiers: [["mqtt", `zigbee2mqtt_${z2mIeee(d.ieee)}`]] };
+    for (const e of d.entities) entities[e.entity_id] = { entity_id: e.entity_id, device_id: d.device_reg_id };
+  }
+  return { retained, networkmap, devices: haDevices, entities, states: zha.states };
+};
+
+// A hass on Zigbee2MQTT (no ZHA, MQTT loaded): `mqtt/subscribe` replays the retained messages, a published
+// network map request is answered.
+export const mockZ2mHass = ({ language = "en", dark = false, healthy = false, error = null } = {}) => {
+  const z = mockZ2m({ healthy });
+  const subs = new Set();
+  return {
+    states: z.states,
+    entities: z.entities,
+    // `hass.devices` as the display registry may give it: without identifiers (they come from the registry list).
+    devices: Object.fromEntries(Object.entries(z.devices).map(([id, { identifiers, ...d }]) => [id, d])),
+    areas: Object.fromEntries(Object.entries(AREAS).map(([area_id, name]) => [area_id, { area_id, name }])),
+    language,
+    locale: { language, time_format: "24", time_zone: "server" },
+    config: { time_zone: "Europe/Paris", components: ["mqtt", "sun"] },
+    themes: { darkMode: dark },
+    user: { is_admin: true },
+    published: [],
+    connection: {
+      subscribeMessage: async (cb, msg) => {
+        if (error) throw { code: error, message: error };
+        if (msg.type !== "mqtt/subscribe") throw { code: "unknown_command" };
+        subs.add(cb);
+        for (const m of z.retained) cb(m);
+        return async () => subs.delete(cb);
+      },
+    },
+    callWS: async (m) => {
+      if (m.type === "config/device_registry/list") return Object.values(z.devices);
+      throw { code: "unknown_command" };
+    },
+    callService: async function (domain, service, data) {
+      this.published.push({ domain, service, data });
+      if (domain === "mqtt" && service === "publish" && data.topic.endsWith("/bridge/request/networkmap")) for (const cb of subs) cb(z.networkmap);
+    },
+    __z2m: { ...z, error },
+  };
+};

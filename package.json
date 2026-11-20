@@ -1,6 +1,6 @@
 {
   "name": "ha-zigbee-card",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Zigbee network card for Home Assistant (ZHA): devices, link quality, batteries and an animated mesh map.",
   "repository": {
     "type": "git",

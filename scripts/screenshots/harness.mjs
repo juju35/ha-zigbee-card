@@ -4,7 +4,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import * as mdi from "@mdi/js";
 import { chromium } from "playwright";
-import { mockHass, NOW } from "./mock.mjs";
+import { mockHass, mockZ2mHass, NOW } from "./mock.mjs";
 
 export const root = fileURLToPath(new URL("../..", import.meta.url));
 // Read on first use: the tests import writeIfChanged without a built bundle.
@@ -80,7 +80,12 @@ export const openPage = async (browser, { theme, width, label = "" }) => {
 };
 
 // The mock hass in the page: its data crosses as JSON, its websocket is rebuilt there.
-export const pageHass = (opts = {}) => {
+// `z2m: true`: the same home on Zigbee2MQTT.
+export const pageHass = ({ z2m = false, ...opts } = {}) => {
+  if (z2m) {
+    const { callWS, callService, connection, published, ...hass } = mockZ2mHass(opts);
+    return hass;
+  }
   const { callWS, ...hass } = mockHass(opts);
   return hass;
 };
@@ -90,22 +95,39 @@ export const pageHass = (opts = {}) => {
 export const mountCard = async (page, { tag, config, dark = false, hass = {}, clicks = [] }) => {
   await page.evaluate(
     ({ tag, config, hass }) => {
+      Math.random = () => 0;
       const el = document.createElement(tag);
       el.setConfig({ type: `custom:${tag}`, ...config });
       const zha = hass.__zha;
+      const z2m = hass.__z2m;
+      const subs = new Set();
       el.hass = {
         ...hass,
-        callService: async () => {},
+        callService: async (domain, service, data) => {
+          if (z2m && service === "publish" && data.topic.endsWith("/bridge/request/networkmap")) for (const cb of subs) cb(z2m.networkmap);
+        },
         callWS: async (m) => {
-          if (zha.error) throw { code: zha.error };
+          if (z2m && m.type === "config/device_registry/list") return Object.values(z2m.devices);
+          if (!zha || zha.error) throw { code: zha?.error || "unknown_command" };
           return m.type === "zha/devices" ? zha.devices : zha.settings;
         },
+        ...(z2m && {
+          connection: {
+            subscribeMessage: async (cb) => {
+              subs.add(cb);
+              for (const m of z2m.retained) cb(m);
+              return () => subs.delete(cb);
+            },
+          },
+        }),
       };
       document.getElementById("root").appendChild(el);
     },
     { tag, config, hass: pageHass({ dark, ...hass }) },
   );
-  await page.waitForTimeout(100);
+  // Zigbee2MQTT renders a second after its messages, asks its network map a second later (no random delay here)
+  // and renders again a second after it.
+  await page.waitForTimeout(hass.z2m ? 3600 : 100);
   for (const sel of clicks)
     await page.evaluate((sel) => {
       const el = document.querySelector("#root > *");

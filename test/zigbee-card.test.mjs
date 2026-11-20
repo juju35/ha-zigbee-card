@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mockHass, mockNetwork, NOW } from "../scripts/screenshots/mock.mjs";
+import { mockHass, mockNetwork, mockZ2m, mockZ2mHass, NOW } from "../scripts/screenshots/mock.mjs";
 import { load } from "./load.mjs";
 
 const zb = load([
@@ -9,6 +9,12 @@ const zb = load([
   "barsOf",
   "fetchZha",
   "zhaEntry",
+  "fetchZ2m",
+  "releaseZ2m",
+  "sourceEntry",
+  "sourceOf",
+  "z2mDevices",
+  "z2mMessage",
   "plural",
   "STRINGS",
   "ZigbeeCard",
@@ -406,4 +412,238 @@ test("status pill on every header: full card, loading or unavailable, classic; b
   const mini = (await card(zb.ZigbeeMiniCard))._render();
   assert.match(mini, /icon="mdi:arrow-expand"/);
   assert.match(mini, /\.zoom \{ all: unset; position: absolute; z-index: 2; top: 5px; right: 5px; cursor: pointer; width: 24px; height: 24px; border-radius: 50%;\s*display: grid; place-items: center; color: #33506b; background: rgba\(255,255,255,\.55\)/);
+});
+
+// Zigbee2MQTT: the retained messages of the mock, read into an entry as the subscription does.
+const z2mEntry = (opts = {}, withMap = true) => {
+  const z = mockZ2m(opts);
+  const e = { z: { devices: null, info: null, avail: new Map(), state: new Map(), map: null } };
+  for (const m of z.retained) zb.z2mMessage(e, "zigbee2mqtt", m);
+  if (withMap) zb.z2mMessage(e, "zigbee2mqtt", z.networkmap);
+  return { e, hass: mockZ2mHass(opts) };
+};
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+test("zigbee2mqtt: the same network as ZHA from the bridge, availability, states and the raw network map", () => {
+  const { e, hass } = z2mEntry();
+  const n = zb.buildNetwork(zb.z2mDevices(e.z, hass), hass, {});
+  const ref = net();
+  for (const k of ["total", "online", "offline", "routers", "ends", "lowBattery", "weak", "attention", "avgLqi"]) assert.equal(n[k], ref[k], k);
+  assert.equal(n.coordinator.model, "EmberZNet 8.0.2");
+  const front = byName(n, "Front door");
+  assert.equal(n.byIeee.get(front.parent).name, "Office plug");
+  assert.equal(front.linkLqi, 94);
+  assert.equal(front.battery, 12);
+  assert.equal(front.area, "Hallway");
+  assert.equal(front.icon, "mdi:door-closed");
+  assert.equal(front.deviceId, "dev_e2");
+  assert.equal(byName(n, "Garage door").link, "lost");
+  assert.equal(byName(n, "Hallway plug").parent, n.coordinator.ieee);
+  assert.equal(byName(n, "Hallway plug").power, "Mains");
+  assert.match(front.ieee, /^0x[0-9a-f]{16}$/);
+});
+
+test("zigbee2mqtt: without a network map, every device hangs from the coordinator with its own LQI", () => {
+  const { e, hass } = z2mEntry({}, false);
+  const n = zb.buildNetwork(zb.z2mDevices(e.z, hass), hass, {});
+  assert.equal(n.total, 42);
+  assert.ok(n.devices.every((d) => d.parent === n.coordinator.ieee));
+  assert.equal(byName(n, "Kitchen motion").lqi, 156);
+});
+
+test("zigbee2mqtt: the link quality sensor when the state carries none; availability off means online", () => {
+  const { e, hass } = z2mEntry({}, false);
+  e.z.state.clear();
+  e.z.avail.clear();
+  hass.states["sensor.kitchen_motion_linkquality"] = { entity_id: "sensor.kitchen_motion_linkquality", state: "77", attributes: { unit_of_measurement: "lqi" } };
+  hass.entities["sensor.kitchen_motion_linkquality"] = { entity_id: "sensor.kitchen_motion_linkquality", device_id: "dev_e1", entity_category: "diagnostic" };
+  const n = zb.buildNetwork(zb.z2mDevices(e.z, hass), hass, {});
+  assert.equal(n.offline, 0);
+  assert.equal(byName(n, "Kitchen motion").lqi, 77);
+  assert.equal(byName(n, "Kitchen motion").issue, "weak");
+});
+
+test("zigbee2mqtt: the integration follows the option, else ZHA when loaded, else MQTT", () => {
+  assert.equal(zb.sourceOf({ config: { components: ["mqtt"] } }, {}), "zigbee2mqtt");
+  assert.equal(zb.sourceOf({ config: { components: ["mqtt", "zha"] } }, {}), "zha");
+  assert.equal(zb.sourceOf({ config: { components: ["zha"] } }, { integration: "zigbee2mqtt" }), "zigbee2mqtt");
+  assert.equal(zb.sourceOf({}, {}), "zha");
+});
+
+test("zigbee2mqtt card: no bridge, no MQTT, not an administrator", async () => {
+  const e = zb.sourceEntry(mockZ2mHass(), "z2m:x");
+  assert.equal(e.data, null);
+  for (const [code, key] of [["unauthorized", "Only an administrator"], ["unknown_command", "MQTT integration is not set up"]]) {
+    const hass = mockZ2mHass({ error: code });
+    const el = new zb.ZigbeeCard();
+    el._update = () => {};
+    el.setConfig({ type: "custom:zigbee-card" });
+    el._hass = hass;
+    el._fetch();
+    await wait(20);
+    assert.ok(el._render().includes(key), code);
+  }
+  const hass = mockZ2mHass();
+  const el = new zb.ZigbeeCard();
+  el._update = () => {};
+  el.setConfig({ type: "custom:zigbee-card", base_topic: "z2m-other" });
+  el._hass = hass;
+  el._fetch();
+  assert.match(el._render(), /Loading/);
+  zb.sourceEntry(hass, "z2m:z2m-other").error = "no_z2m";
+  assert.match(el._render(), /base topic &quot;z2m-other&quot;/);
+});
+
+// Fake timers for the subscription's lifecycle: run by hand, oldest first.
+const timers = [];
+const delays = [];
+const fake = load(["fetchZ2m", "releaseZ2m", "sourceEntry", "ZigbeeCard", "z2mDevices", "buildNetwork"], {
+  setTimeout: (fn, ms) => delays.push(ms) && timers.push({ fn, ms }) && timers.length,
+  clearTimeout: (id) => id && timers[id - 1] && (timers[id - 1].fn = null),
+});
+const runTimers = () => {
+  while (timers.length) timers.shift().fn?.();
+};
+const z2mConn = (hass) => {
+  const calls = { sub: 0, unsub: 0, cbs: [] };
+  hass.connection = {
+    subscribeMessage: async (cb) => {
+      calls.sub++;
+      calls.cbs.push(cb);
+      if (hass.failWith) throw { code: hass.failWith };
+      for (const m of mockZ2m().retained) cb(m);
+      return () => calls.unsub++;
+    },
+  };
+  return calls;
+};
+
+test("zigbee2mqtt subscription: shared, released a minute after the last card, late messages ignored", async () => {
+  timers.length = 0;
+  const hass = mockZ2mHass();
+  const calls = z2mConn(hass);
+  const a = {};
+  const b = {};
+  fake.fetchZ2m(hass, "zigbee2mqtt", 0, a);
+  fake.fetchZ2m(hass, "zigbee2mqtt", 0, b);
+  await wait(0);
+  assert.equal(calls.sub, 1);
+  const e = fake.sourceEntry(hass, "z2m:zigbee2mqtt");
+  assert.equal(e.data.length, 43);
+  fake.releaseZ2m(hass, "zigbee2mqtt", a);
+  runTimers();
+  assert.equal(calls.unsub, 0, "another card still uses it");
+  fake.releaseZ2m(hass, "zigbee2mqtt", b);
+  runTimers();
+  await wait(0);
+  assert.equal(calls.unsub, 1);
+  assert.equal(e.data, null);
+  // A message of the ended subscription, before its unsubscribe lands: ignored, no crash.
+  calls.cbs[0](mockZ2m().retained[2]);
+  assert.equal(e.data, null);
+  fake.fetchZ2m(hass, "zigbee2mqtt", 0, a);
+  await wait(0);
+  assert.equal(calls.sub, 2);
+  assert.equal(e.data.length, 43);
+});
+
+test("zigbee2mqtt subscription: tried again after a failure (MQTT loaded late)", async () => {
+  timers.length = 0;
+  const hass = mockZ2mHass();
+  const calls = z2mConn(hass);
+  hass.failWith = "unknown_command";
+  fake.fetchZ2m(hass, "zigbee2mqtt", 0, {});
+  await wait(0);
+  const e = fake.sourceEntry(hass, "z2m:zigbee2mqtt");
+  assert.equal(e.error, "no_mqtt");
+  fake.fetchZ2m(hass, "zigbee2mqtt", 0, {});
+  assert.equal(calls.sub, 1, "not before the retry delay");
+  hass.failWith = null;
+  e.at -= 31000;
+  fake.fetchZ2m(hass, "zigbee2mqtt", 0, {});
+  await wait(0);
+  assert.equal(calls.sub, 2);
+  assert.equal(e.error, null);
+});
+
+test("zigbee2mqtt card: a card off the page does not take the subscription again", async () => {
+  timers.length = 0;
+  const hass = mockZ2mHass();
+  const calls = z2mConn(hass);
+  const el = new fake.ZigbeeCard();
+  el._update = () => {};
+  el.setConfig({ type: "custom:zigbee-card", base_topic: "detached" });
+  el.isConnected = false;
+  el._hass = hass;
+  el._fetch();
+  await wait(0);
+  assert.equal(calls.sub, 0);
+  // Put on the page: it reads the network at once (Home Assistant set its state before).
+  el.isConnected = true;
+  el.connectedCallback();
+  await wait(0);
+  assert.equal(calls.sub, 1);
+  el._unlisten();
+  assert.equal(el._unlisten, null);
+});
+
+test("zigbee2mqtt card: asks a raw network map after a random delay, renders the Zigbee2MQTT header", async () => {
+  timers.length = 0;
+  delays.length = 0;
+  const hass = mockZ2mHass();
+  const el = new fake.ZigbeeCard();
+  el._now = () => NOW;
+  el._update = () => {};
+  el.setConfig({ type: "custom:zigbee-card", default_tab: "map" });
+  el._hass = hass;
+  el._fetch();
+  assert.equal(hass.published.length, 0, "not before the network is in");
+  await wait(0);
+  runTimers();
+  await wait(0);
+  // Its rendering (a second after the messages) fetched again: the scan, after its random delay.
+  assert.ok(delays.some((ms) => ms > 1000 && ms <= 15000));
+  assert.equal(hass.published.length, 1);
+  assert.equal(hass.published[0].data.topic, "zigbee2mqtt/bridge/request/networkmap");
+  assert.deepEqual(JSON.parse(hass.published[0].data.payload), { type: "raw", routes: false });
+  runTimers();
+  el._fetch();
+  runTimers();
+  assert.equal(hass.published.length, 1, "one scan per networkmap_interval");
+  assert.match(el._render(), /42 devices/);
+  el._tab = "devices";
+  assert.match(el._render(), /Zigbee2MQTT · Channel 15 · 42 devices/);
+  const net = el._net();
+  assert.equal(net.byIeee.get(net.devices.find((d) => d.name === "Front door").parent).name, "Office plug");
+  el._unlisten();
+});
+
+test("zigbee2mqtt: a scan asked by another browser in the meantime is not asked again", async () => {
+  timers.length = 0;
+  const hass = mockZ2mHass();
+  const calls = z2mConn(hass);
+  hass.callService = async (d, sv, data) => hass.published.push(data);
+  fake.fetchZ2m(hass, "zigbee2mqtt", 3600e3, {});
+  await wait(0);
+  fake.fetchZ2m(hass, "zigbee2mqtt", 3600e3, {});
+  // Another browser's request goes through the broker before this one's delay is over.
+  calls.cbs[0]({ topic: "zigbee2mqtt/bridge/request/networkmap", payload: '{"type":"raw","routes":false}' });
+  runTimers();
+  await wait(0);
+  assert.equal(hass.published.length, 0);
+});
+
+test("zigbee2mqtt: HA devices from the registry list by identifier, live name and area from hass.devices", () => {
+  const z = mockZ2m();
+  const e = { z: { devices: null, info: null, avail: new Map(), state: new Map(), map: null } };
+  for (const m of z.retained) zb.z2mMessage(e, "zigbee2mqtt", m);
+  const hass = mockZ2mHass();
+  const list = Object.values(z.devices);
+  // A device of another integration with the same name is never taken.
+  list.unshift({ id: "hue_1", name: "Front door", area_id: "garage", identifiers: [["hue", "x"]] });
+  hass.devices.dev_e2 = { ...hass.devices.dev_e2, name_by_user: "Main door", area_id: "office" };
+  const front = zb.z2mDevices(e.z, hass, list).find((d) => d.friendly_name === undefined && d.name === "Front door");
+  assert.equal(front.device_reg_id, "dev_e2");
+  assert.equal(front.user_given_name, "Main door");
+  assert.equal(front.area_id, "office");
 });

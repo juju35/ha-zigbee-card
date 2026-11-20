@@ -2,10 +2,12 @@
  * Zigbee Card for Home Assistant
  * https://github.com/juju35/ha-zigbee-card
  *
- * The Zigbee network of Home Assistant's ZHA integration: its devices (routers, end devices, their link quality,
- * battery and availability) and a map of its mesh, read from the ZHA websocket API (`zha/devices`, the same data
- * as the integration's network visualization, and `zha/network/settings` for the channel and the PAN id).
- * The batteries come from the devices' battery sensors. Reading the network needs an administrator.
+ * The Zigbee network of Home Assistant's ZHA integration or of Zigbee2MQTT: its devices (routers, end devices,
+ * their link quality, battery and availability) and a map of its mesh. ZHA is read from its websocket API
+ * (`zha/devices`, the same data as the integration's network visualization, and `zha/network/settings` for the
+ * channel and the PAN id); Zigbee2MQTT from its MQTT topics through Home Assistant (`mqtt/subscribe`: the bridge's
+ * devices and info, the availability, the devices' states and the raw network map). The batteries come from the
+ * devices' battery sensors. Reading the network needs an administrator.
  */
 
 const VERSION = "__VERSION__";
@@ -64,7 +66,7 @@ const icon = (name, cls = "") => `<ha-icon${cls ? ` class="${cls}"` : ""} icon="
 // ZHADeviceType of the frontend (zha.ts): the logical type of the node descriptor, "GreenPower" or "unknown".
 const ROLES = { Coordinator: "coordinator", Router: "router", EndDevice: "end", GreenPower: "end" };
 const MAINS = "Mains";
-const DEFAULTS = { weak_lqi: 80, low_battery: 20, max_devices: 12, refresh_interval: 60 };
+const DEFAULTS = { weak_lqi: 80, low_battery: 20, max_devices: 12, refresh_interval: 60, networkmap_interval: 3600 };
 
 const roleOf = (d) => ROLES[d.device_type] || (d.power_source === MAINS ? "router" : "end");
 
@@ -135,11 +137,19 @@ const deviceEntities = (hass, d) => {
   let batteryId = null;
   let main = null;
   let rank = Infinity;
+  let lqi = null;
+  let lqiId = null;
   for (const id of ids) {
     const st = hass?.states?.[id];
     if (!st) continue;
     const domain = id.split(".")[0];
     const dc = st.attributes?.device_class;
+    // The link quality sensor of Zigbee2MQTT (`sensor.<name>_linkquality`, in « lqi »).
+    if (domain === "sensor" && (st.attributes?.unit_of_measurement === "lqi" || id.endsWith("_linkquality"))) {
+      lqi = num(st.state);
+      lqiId = id;
+      continue;
+    }
     if (dc === "battery" && domain === "sensor" && num(st.state) !== null) {
       battery = Math.round(num(st.state));
       batteryId = id;
@@ -157,7 +167,7 @@ const deviceEntities = (hass, d) => {
       main = st;
     }
   }
-  return { battery, batteryLow, batteryId, main };
+  return { battery, batteryLow, batteryId, main, lqi, lqiId };
 };
 
 const iconOf = (role, main) => {
@@ -180,8 +190,9 @@ const LEVEL_RANK = { alert: 0, warn: 1, ok: 2 };
 // One device of the card: what it is, how it is doing, and its issue (offline, low battery, weak signal).
 const nodeOf = (d, hass, config) => {
   const role = roleOf(d);
-  const { battery, batteryLow, batteryId, main } = deviceEntities(hass, d);
-  const lqi = num(d.lqi);
+  const ent = deviceEntities(hass, d);
+  const { battery, batteryLow, batteryId, main } = ent;
+  const lqi = num(d.lqi) ?? (d.available !== false ? ent.lqi : null);
   const weak = num(config.weak_lqi) ?? DEFAULTS.weak_lqi;
   const low = num(config.low_battery) ?? DEFAULTS.low_battery;
   const available = d.available !== false;
@@ -200,6 +211,7 @@ const nodeOf = (d, hass, config) => {
     battery,
     batteryLow: battery !== null ? battery <= low : batteryLow,
     batteryId,
+    lqiId: ent.lqiId,
     mainId: main?.entity_id || null,
     icon: iconOf(role, main),
     area: d.area_id ? hass?.areas?.[d.area_id]?.name || "" : "",
@@ -288,17 +300,20 @@ const barsOf = (n, weak) => {
   return n.lqi >= weak ? 2 : 1;
 };
 
-// The ZHA data, shared by every card of the page (one websocket call for all of them), read again after
-// `refresh_interval` seconds. Each read bumps `version`, which the cards' render signature follows. Returns the
-// read in progress, or null when the data is fresh.
+// The data of a network (ZHA, or one Zigbee2MQTT base topic), shared by every card of the page. Each change
+// bumps `version`, which the cards' render signature follows.
 const _zha = new WeakMap();
-const zhaEntry = (hass) => {
-  const key = hass?.connection || hass?.callWS;
-  if (!key) return null;
-  let e = _zha.get(key);
-  if (!e) _zha.set(key, (e = { version: 0, data: null, settings: null, error: null, at: 0, pending: null }));
+const sourceEntry = (hass, key) => {
+  const conn = hass?.connection || hass?.callWS;
+  if (!conn) return null;
+  let all = _zha.get(conn);
+  if (!all) _zha.set(conn, (all = new Map()));
+  let e = all.get(key);
+  if (!e) all.set(key, (e = { key, version: 0, data: null, settings: null, error: null, at: 0, pending: null }));
   return e;
 };
+// ZHA, read again after `refresh_interval` seconds. Returns the read in progress, or null when the data is fresh.
+const zhaEntry = (hass) => sourceEntry(hass, "zha");
 const ERRORS = { unauthorized: "not_admin", unknown_command: "no_zha" };
 const fetchZha = (hass, maxAgeMs) => {
   const e = zhaEntry(hass);
@@ -322,6 +337,251 @@ const fetchZha = (hass, maxAgeMs) => {
       return e;
     });
   return e.pending;
+};
+
+// ---------------------------------------------------------------------------
+// Zigbee2MQTT data
+// ---------------------------------------------------------------------------
+
+// The integration a card reads: `integration`, or by itself ZHA when it is loaded, else Zigbee2MQTT when MQTT is.
+const INTEGRATIONS = ["auto", "zha", "zigbee2mqtt"];
+const sourceOf = (hass, config) => {
+  const s = config?.integration;
+  if (s === "zha" || s === "zigbee2mqtt") return s;
+  const c = hass?.config?.components;
+  return Array.isArray(c) && !c.includes("zha") && c.includes("mqtt") ? "zigbee2mqtt" : "zha";
+};
+const baseTopic = (config) => String(config?.base_topic || "zigbee2mqtt").replace(/^\/+|\/+$/g, "") || "zigbee2mqtt";
+
+// The neighbor relationship of a raw network map's link (ZDO LQI table): the source is the target's parent, child…
+const RELATIONS = ["Parent", "Child", "Sibling"];
+const Z2M_ERRORS = { unauthorized: "not_admin", unknown_command: "no_mqtt" };
+// No `bridge/devices` (retained) this long after subscribing: no Zigbee2MQTT under this base topic.
+const Z2M_WAIT_MS = 10000;
+const Z2M_THROTTLE_MS = 1000;
+// A failed subscription (MQTT not loaded yet, a lost connection) is tried again after this.
+const Z2M_RETRY_MS = 30000;
+// A scan is asked after a random delay (1 to 15 s): the browsers of a home that load or fall due together see the
+// first one's request and keep from asking again.
+const Z2M_JITTER_MS = 14000;
+const Z2M_REG_MS = 60000;
+
+// The HA device of each Zigbee2MQTT device, by its `mqtt` identifier `zigbee2mqtt_<ieee>`: from the device registry
+// (`config/device_registry/list`, read with the network) or `hass.devices` when it carries the identifiers; by name
+// only when neither gives identifiers. Its name and area come from `hass.devices` when it is there (live).
+const _z2mReg = new WeakMap();
+const z2mRegistry = (hass, list) => {
+  const key = list || hass?.devices;
+  if (!key) return null;
+  let idx = _z2mReg.get(key);
+  if (!idx) {
+    idx = { ieee: new Map(), name: new Map() };
+    for (const d of Array.isArray(key) ? key : Object.values(key)) {
+      for (const [dom, id] of d?.identifiers || []) {
+        const m = dom === "mqtt" && /^zigbee2mqtt_(0x[0-9a-f]+)$/i.exec(String(id));
+        if (m) idx.ieee.set(m[1].toLowerCase(), d);
+      }
+      // By name only when the registry gives no identifiers: never a device of another integration.
+      if (!d?.identifiers) for (const n of [d?.name_by_user, d?.name]) if (n && !idx.name.has(n)) idx.name.set(n, d);
+    }
+    _z2mReg.set(key, idx);
+  }
+  return idx;
+};
+
+const z2mPower = (v) => (!v ? "" : /^(mains|dc)/i.test(String(v)) ? MAINS : "Battery");
+// `last_seen` of Zigbee2MQTT: ISO 8601 or epoch milliseconds; in seconds for seenAt.
+const z2mSeen = (v) => (typeof v === "number" ? v / 1000 : v || null);
+
+// The Zigbee2MQTT network in the shape of `zha/devices`: the bridge's devices, their availability and last state
+// (link quality, last seen), and their neighbor tables from the last raw network map.
+const z2mDevices = (z, hass, list = null) => {
+  const nbrs = new Map();
+  const heard = new Map();
+  const seen = new Map();
+  for (const l of z.map?.links || []) {
+    const src = String(l?.source?.ieeeAddr ?? l?.sourceIeeeAddr ?? "");
+    const dst = String(l?.target?.ieeeAddr ?? l?.targetIeeeAddr ?? "");
+    if (!src || !dst) continue;
+    const lqi = num(l.lqi ?? l.linkquality);
+    (nbrs.get(dst) ?? nbrs.set(dst, []).get(dst)).push({ ieee: src, lqi, relationship: RELATIONS[l.relationship] || "Sibling" });
+    if (lqi !== null) heard.set(src, Math.max(heard.get(src) ?? 0, lqi));
+  }
+  for (const n of z.map?.nodes || []) if (n?.ieeeAddr && n.lastSeen) seen.set(String(n.ieeeAddr), n.lastSeen);
+  const reg = z2mRegistry(hass, list);
+  const coord = z.info?.coordinator;
+  return (Array.isArray(z.devices) ? z.devices : [])
+    .filter((d) => d?.ieee_address && !d.disabled)
+    .map((d) => {
+      const ieee = String(d.ieee_address);
+      const name = d.friendly_name || ieee;
+      const st = z.state.get(name) || {};
+      const found = reg?.ieee.get(ieee.toLowerCase()) || reg?.name.get(name) || null;
+      const hd = (found && hass?.devices?.[found.id]) || found;
+      const isCoord = d.type === "Coordinator";
+      return {
+        ieee,
+        nwk: d.network_address,
+        name,
+        user_given_name: hd?.name_by_user || null,
+        device_type: d.type,
+        power_source: isCoord ? MAINS : z2mPower(d.power_source),
+        available: z.avail.has(name) ? z.avail.get(name) : true,
+        lqi: isCoord ? null : (num(st.linkquality) ?? heard.get(ieee) ?? null),
+        rssi: null,
+        last_seen: z2mSeen(st.last_seen ?? seen.get(ieee)),
+        manufacturer: d.definition?.vendor || d.manufacturer || "",
+        model: isCoord ? [coord?.type, coord?.meta?.revision].filter(Boolean).join(" ") : d.definition?.model || d.model_id || "",
+        entities: [],
+        neighbors: nbrs.get(ieee) || [],
+        device_reg_id: hd?.id || null,
+        area_id: hd?.area_id || null,
+      };
+    });
+};
+
+// One Zigbee2MQTT message (`mqtt/subscribe` event) into the entry.
+const z2mMessage = (e, topic, m) => {
+  const t = String(m?.topic ?? "");
+  if (!t.startsWith(`${topic}/`)) return false;
+  const rest = t.slice(topic.length + 1);
+  let p = m.payload;
+  try {
+    p = JSON.parse(m.payload);
+  } catch (_e) {
+    /* a plain text payload (legacy availability) */
+  }
+  const z = e.z;
+  if (rest === "bridge/devices") z.devices = Array.isArray(p) ? p : [];
+  else if (rest === "bridge/info") z.info = p && typeof p === "object" ? p : null;
+  else if (rest === "bridge/response/networkmap") {
+    e.mapAsked = Math.max(e.mapAsked ?? 0, Date.now());
+    if (p?.status !== "ok" || p.data?.type !== "raw" || !p.data.value) return false;
+    z.map = p.data.value;
+  } else if (rest === "bridge/request/networkmap") {
+    // A scan asked by any client (another browser, the Zigbee2MQTT frontend): this one does not ask again.
+    e.mapAsked = Date.now();
+    return false;
+  } else if (rest.startsWith("bridge/")) return false;
+  else if (rest.endsWith("/availability")) z.avail.set(rest.slice(0, -13), (p && typeof p === "object" ? p.state : p) === "online");
+  else if (p && typeof p === "object" && !Array.isArray(p) && !/\/(set|get)(\/|$)/.test(rest)) {
+    if (!("linkquality" in p) && !("last_seen" in p)) return false;
+    const prev = z.state.get(rest) || {};
+    z.state.set(rest, { linkquality: p.linkquality ?? prev.linkquality, last_seen: p.last_seen ?? prev.last_seen });
+  } else return false;
+  return true;
+};
+
+const z2mBump = (e) => {
+  e.version++;
+  for (const fn of e.listeners) fn();
+};
+
+// Zigbee2MQTT under `topic`: one subscription to `<topic>/#` for every card of the page, kept while a card uses
+// it; a raw network map is asked when the last one is older than `mapEveryMs` (0: never).
+const fetchZ2m = (hass, topic, mapEveryMs, card) => {
+  const e = sourceEntry(hass, `z2m:${topic}`);
+  if (!e) return null;
+  e.listeners ??= new Set();
+  e.users ??= new Set();
+  if (card) {
+    e.users.add(card);
+    clearTimeout(e.drop);
+  }
+  if (!e.sub && (!e.error || Date.now() - e.at >= Z2M_RETRY_MS)) {
+    const conn = hass.connection;
+    if (typeof conn?.subscribeMessage !== "function") {
+      e.error = "load_error";
+      e.at = Date.now();
+      return null;
+    }
+    // Each subscription has its own generation: the messages and the failure of an ended one are ignored.
+    const gen = (e.gen = (e.gen ?? 0) + 1);
+    const live = () => e.gen === gen;
+    e.z = { devices: null, info: null, avail: new Map(), state: new Map(), map: null };
+    e.mapAsked = 0;
+    e.regAt = 0;
+    e.reg = null;
+    clearTimeout(e.mapTimer);
+    e.mapTimer = null;
+    let timer = null;
+    const onMsg = (m) => {
+      if (!live() || !z2mMessage(e, topic, m)) return;
+      if (e.z.devices) {
+        // The device registry with the first devices, then at most once a minute when they change (a new device).
+        if (String(m.topic).endsWith("/bridge/devices") && Date.now() - (e.regAt ?? 0) >= Z2M_REG_MS && typeof hass.callWS === "function") {
+          e.regAt = Date.now();
+          Promise.resolve(hass.callWS({ type: "config/device_registry/list" }))
+            .then((list) => {
+              if (live() && Array.isArray(list)) {
+                e.reg = list;
+                z2mBump(e);
+              }
+            })
+            .catch(() => {});
+        }
+        e.data = e.z.devices;
+        const ni = e.z.info?.network;
+        e.settings = ni ? { settings: { network_info: { channel: ni.channel, pan_id: num(ni.pan_id) !== null ? Number(ni.pan_id).toString(16) : ni.pan_id } } } : null;
+        e.error = null;
+      }
+      // A busy network sends many states: one render a second at most.
+      timer ??= setTimeout(() => {
+        timer = null;
+        if (live()) z2mBump(e);
+      }, Z2M_THROTTLE_MS);
+    };
+    e.sub = Promise.resolve(conn.subscribeMessage(onMsg, { type: "mqtt/subscribe", topic: `${topic}/#` })).catch((err) => {
+      if (!live()) return null;
+      e.error = Z2M_ERRORS[err?.code] || "load_error";
+      e.at = Date.now();
+      e.sub = null;
+      clearTimeout(e.wait);
+      z2mBump(e);
+      return null;
+    });
+    clearTimeout(e.wait);
+    e.wait = setTimeout(() => {
+      if (live() && !e.data && !e.error) {
+        e.error = "no_z2m";
+        z2mBump(e);
+      }
+    }, Z2M_WAIT_MS);
+  }
+  const due = () => mapEveryMs > 0 && e.data && Date.now() - e.mapAsked >= mapEveryMs;
+  if (due() && !e.mapTimer && typeof hass.callService === "function") {
+    const gen = e.gen;
+    e.mapTimer = setTimeout(
+      () => {
+        e.mapTimer = null;
+        if (e.gen !== gen || !due()) return;
+        e.mapAsked = Date.now();
+        Promise.resolve(
+          hass.callService("mqtt", "publish", { topic: `${topic}/bridge/request/networkmap`, payload: JSON.stringify({ type: "raw", routes: false }) }),
+        ).catch(() => {});
+      },
+      1000 + Math.random() * Z2M_JITTER_MS,
+    );
+  }
+  return null;
+};
+
+// A card left the page: the subscription ends a minute after the last card of its topic.
+const releaseZ2m = (hass, topic, card) => {
+  const e = sourceEntry(hass, `z2m:${topic}`);
+  if (!e?.users?.delete(card) || e.users.size) return;
+  clearTimeout(e.drop);
+  e.drop = setTimeout(() => {
+    if (e.users.size) return;
+    const sub = e.sub;
+    e.gen = (e.gen ?? 0) + 1;
+    e.sub = null;
+    clearTimeout(e.wait);
+    clearTimeout(e.mapTimer);
+    Object.assign(e, { data: null, settings: null, error: null, z: null, reg: null, mapTimer: null });
+    if (!sub) return;
+    sub.then((unsub) => typeof unsub === "function" && unsub()).catch(() => {});
+  }, 60000);
 };
 
 // ---------------------------------------------------------------------------
@@ -923,6 +1183,9 @@ class ZigbeeCard extends HTMLElement {
     this._tab = null;
     this._filter = null;
     this._html = "";
+    // Another integration or base topic: the next fetch follows the new one.
+    this._unlisten?.();
+    if (this._hass) this._fetch();
     this._update();
   }
 
@@ -960,6 +1223,8 @@ class ZigbeeCard extends HTMLElement {
       this._fetch();
       this.hass = this._hass;
     }, 15000);
+    // Home Assistant hands the state over before the card is on the page: the network is read once it is.
+    if (this._hass && this._config) this._fetch();
     this._update();
   }
 
@@ -968,6 +1233,7 @@ class ZigbeeCard extends HTMLElement {
     this._fitWidth = null;
     this._outsideWatch?.off();
     clearInterval(this._timer);
+    this._unlisten?.();
     // Left (another view, a conditional card hidden): the popup closes without anything else.
     this._detail = null;
     window.removeEventListener("keydown", this._onKey);
@@ -985,11 +1251,37 @@ class ZigbeeCard extends HTMLElement {
     return Date.now();
   }
 
+  _source() {
+    return sourceOf(this._hass, this._config);
+  }
+
   _entry() {
-    return zhaEntry(this._hass);
+    return this._source() === "zigbee2mqtt" ? sourceEntry(this._hass, `z2m:${baseTopic(this._config)}`) : zhaEntry(this._hass);
   }
 
   _fetch() {
+    if (this._source() === "zigbee2mqtt") {
+      // Home Assistant may still hand its state to a card off the page: it does not hold the subscription.
+      if (this.isConnected === false) return;
+      const topic = baseTopic(this._config);
+      const map = num(this._config.networkmap_interval) ?? DEFAULTS.networkmap_interval;
+      fetchZ2m(this._hass, topic, map > 0 ? Math.max(300, map) * 1000 : 0, this);
+      const e = this._entry();
+      if (e && this._listening !== e) {
+        this._unlisten?.();
+        const fn = () => this._hass && this._config && (this.hass = this._hass);
+        e.listeners.add(fn);
+        this._listening = e;
+        const hass = this._hass;
+        this._unlisten = () => {
+          e.listeners.delete(fn);
+          releaseZ2m(hass, topic, this);
+          this._listening = null;
+          this._unlisten = null;
+        };
+      }
+      return;
+    }
     const every = Math.max(10, num(this._config.refresh_interval) ?? DEFAULTS.refresh_interval) * 1000;
     const p = fetchZha(this._hass, every);
     if (p && p !== this._pending) {
@@ -1001,7 +1293,7 @@ class ZigbeeCard extends HTMLElement {
   _net() {
     const e = this._entry();
     if (!e?.data) return null;
-    return buildNetwork(e.data, this._hass, this._config);
+    return buildNetwork(e.z ? z2mDevices(e.z, this._hass, e.reg) : e.data, this._hass, this._config);
   }
 
   // What the render depends on: language, dark mode, the ZHA data, the minute and the battery and main entities.
@@ -1100,7 +1392,7 @@ class ZigbeeCard extends HTMLElement {
     if (!net) return [];
     if (tab === "map") return [this._p("devices", net.total), this._p("routers", net.routers)];
     const { channel } = this._channel();
-    return ["ZHA", channel !== null ? this._t("channel", { n: channel }) : "", this._p("devices", net.total)].filter(Boolean);
+    return [this._source() === "zigbee2mqtt" ? "Zigbee2MQTT" : "ZHA", channel !== null ? this._t("channel", { n: channel }) : "", this._p("devices", net.total)].filter(Boolean);
   }
 
   // The network's level: alert when the coordinator or every device is offline, warn with an issue, else ok.
@@ -1283,9 +1575,9 @@ class ZigbeeCard extends HTMLElement {
   _render() {
     const problem = this._problem();
     const tab = this._activeTab();
-    if (problem) return this._shell(null, tab, `<div class="${problem === "loading" ? "empty" : "warning"}">${esc(this._t(problem))}</div>`);
+    if (problem) return this._shell(null, tab, `<div class="${problem === "loading" ? "empty" : "warning"}">${esc(this._t(problem, { topic: baseTopic(this._config) }))}</div>`);
     const net = (this._net_ = this._net());
-    this._watched = net.devices.flatMap((n) => [n.batteryId, n.mainId]).filter(Boolean);
+    this._watched = net.devices.flatMap((n) => [n.batteryId, n.mainId, n.lqiId]).filter(Boolean);
     return this._shell(net, tab, `${this._tabs(tab)}${tab === "map" ? this._mapView(net) : this._devicesView(net)}${this._detailHtml(net)}`);
   }
 
@@ -1542,11 +1834,11 @@ class ZigbeeMiniCard extends ZigbeeCard {
     if (this._zoomed) return super._render();
     const problem = (this._problem_ = this._problem());
     const net = problem ? null : (this._net_ = this._net());
-    if (net) this._watched = net.devices.flatMap((n) => [n.batteryId, n.mainId]).filter(Boolean);
+    if (net) this._watched = net.devices.flatMap((n) => [n.batteryId, n.mainId, n.lqiId]).filter(Boolean);
     const level = problem && problem !== "loading" ? "alert" : this._level(net);
     const bar = this._config.mini_layout === "bar";
     const body = problem
-      ? `<div class="${problem === "loading" ? "msub" : "msub warning"}">${esc(this._t(problem))}</div>`
+      ? `<div class="${problem === "loading" ? "msub" : "msub warning"}">${esc(this._t(problem, { topic: baseTopic(this._config) }))}</div>`
       : bar
         ? this._miniBar(net)
         : `<div class="rs">${this._miniChips(net)}</div>`;
@@ -1580,7 +1872,7 @@ class ZigbeeMiniCard extends ZigbeeCard {
 
 // Options on by default (left out of the YAML while on), and the defaults left out of the YAML.
 const ON_BY_DEFAULT = ["show_status", "illustration", "zoom"];
-const VALUE_DEFAULTS = { default_tab: "devices", default_filter: "all", illustration_theme: "auto", mini_layout: "chips", ...DEFAULTS };
+const VALUE_DEFAULTS = { integration: "auto", base_topic: "zigbee2mqtt", default_tab: "devices", default_filter: "all", illustration_theme: "auto", mini_layout: "chips", ...DEFAULTS };
 const LANGUAGES = [
   ["en", "English"], ["fr", "Français"], ["de", "Deutsch"], ["es", "Español"], ["sr", "Српски"], ["sr-Latn", "Srpski (latinica)"],
   ["it", "Italiano"], ["nl", "Nederlands"], ["pt", "Português (Portugal)"], ["pl", "Polski"], ["ro", "Română"], ["da", "Dansk"],
@@ -1610,6 +1902,7 @@ class ZigbeeCardEditor extends HTMLElement {
       selector: { select: { mode: "dropdown", options: values.map((v) => ({ value: v, label: tr(label(v)) })) } },
     });
     const selects = [
+      select("integration", INTEGRATIONS, (v) => `integration_${v}`),
       select("default_tab", TABS, (v) => `tab_${v}`),
       select("default_filter", FILTERS, (v) => `filter_${v}`),
       select("illustration_theme", ["auto", "day", "night"], (v) => `theme_${v}`),
@@ -1620,6 +1913,18 @@ class ZigbeeCardEditor extends HTMLElement {
     return [
       { name: "title", selector: { text: {} } },
       { type: "grid", name: "", schema: selects },
+      ...(sourceOf(this._hass, this._config) === "zigbee2mqtt"
+        ? [
+            {
+              type: "grid",
+              name: "",
+              schema: [
+                { name: "base_topic", selector: { text: {} } },
+                { name: "networkmap_interval", selector: { number: { min: 0, max: 86400, step: 60, mode: "box", unit_of_measurement: "s" } } },
+              ],
+            },
+          ]
+        : []),
       {
         type: "grid",
         name: "",
@@ -1627,7 +1932,9 @@ class ZigbeeCardEditor extends HTMLElement {
           { name: "weak_lqi", selector: { number: { min: 1, max: 254, step: 1, mode: "box" } } },
           { name: "low_battery", selector: { number: { min: 1, max: 100, step: 1, mode: "box", unit_of_measurement: "%" } } },
           { name: "max_devices", selector: { number: { min: 0, max: 500, step: 1, mode: "box" } } },
-          { name: "refresh_interval", selector: { number: { min: 10, max: 3600, step: 5, mode: "box", unit_of_measurement: "s" } } },
+          ...(sourceOf(this._hass, this._config) === "zigbee2mqtt"
+            ? []
+            : [{ name: "refresh_interval", selector: { number: { min: 10, max: 3600, step: 5, mode: "box", unit_of_measurement: "s" } } }]),
         ],
       },
       { type: "grid", name: "", schema: toggles.map((name) => ({ name, selector: { boolean: {} } })) },
@@ -1683,8 +1990,8 @@ define("zigbee-mini-card-editor", ZigbeeMiniCardEditor);
 
 window.customCards = window.customCards || [];
 for (const card of [
-  { type: "zigbee-card", name: "Zigbee Card", description: "The devices and the mesh map of the ZHA Zigbee network, under an animated mesh banner." },
-  { type: "zigbee-mini-card", name: "Zigbee Mini Card", description: "The health of the ZHA Zigbee network in one line, with a zoom button to the full card." },
+  { type: "zigbee-card", name: "Zigbee Card", description: "The devices and the mesh map of the Zigbee network (ZHA or Zigbee2MQTT), under an animated mesh banner." },
+  { type: "zigbee-mini-card", name: "Zigbee Mini Card", description: "The health of the Zigbee network (ZHA or Zigbee2MQTT) in one line, with a zoom button to the full card." },
 ]) {
   if (!window.customCards.some((c) => c.type === card.type))
     window.customCards.push({ ...card, preview: true, documentationURL: "https://github.com/juju35/ha-zigbee-card" });
