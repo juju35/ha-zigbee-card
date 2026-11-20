@@ -10,6 +10,11 @@
 
 <p align="center"><img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/images/icon.svg" alt="Zigbee Card" width="120"></p>
 
+<p align="center">
+  <a href="https://www.home-assistant.io/integrations/zha/"><img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/images/zha.png" alt="ZHA" width="64"></a>&nbsp;&nbsp;
+  <a href="https://www.zigbee2mqtt.io/"><img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/images/zigbee2mqtt.png" alt="Zigbee2MQTT" width="64"></a>
+</p>
+
 A card for the **Zigbee network** of Home Assistant's [ZHA integration](https://www.home-assistant.io/integrations/zha/) or of [Zigbee2MQTT](https://www.zigbee2mqtt.io/): every device with its link quality, battery and availability, and a **map of the mesh**, under an animated banner where the mesh flows from the coordinator.
 
 The cards read the network straight from ZHA (the same data as its network visualization) or from the MQTT topics of Zigbee2MQTT: add the card, and the coordinator, the routers and the end devices show up by themselves, with the devices that need attention first.
