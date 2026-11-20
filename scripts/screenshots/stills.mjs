@@ -14,6 +14,9 @@ export const SHOTS = [
   ...pair("card-attention", { tag: "zigbee-card", config: { default_filter: "attention" } }),
   // The popup of a device, at the top of the card.
   ...pair("card-detail", { tag: "zigbee-card", config: {}, clicks: [".tile.warn"] }),
+  // Zigbee2MQTT: the same home read from its MQTT topics, its Devices and Map tabs.
+  ...pair("card-z2m", { tag: "zigbee-card", config: { max_devices: 8 }, hass: { z2m: true } }),
+  ...pair("card-z2m-map", { tag: "zigbee-card", config: { default_tab: "map" }, hass: { z2m: true } }),
   // The night banner.
   ...pair("card-night", { tag: "zigbee-card", config: { illustration_theme: "night", default_tab: "map" } }),
   // Without the illustration: the classic header.

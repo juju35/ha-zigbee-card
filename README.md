@@ -10,9 +10,9 @@
 
 <p align="center"><img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/images/icon.svg" alt="Zigbee Card" width="120"></p>
 
-A card for the **Zigbee network** of Home Assistant's [ZHA integration](https://www.home-assistant.io/integrations/zha/): every device with its link quality, battery and availability, and a **map of the mesh**, under an animated banner where the mesh flows from the coordinator.
+A card for the **Zigbee network** of Home Assistant's [ZHA integration](https://www.home-assistant.io/integrations/zha/) or of [Zigbee2MQTT](https://www.zigbee2mqtt.io/): every device with its link quality, battery and availability, and a **map of the mesh**, under an animated banner where the mesh flows from the coordinator.
 
-The cards read the network straight from ZHA, the same data as its network visualization: add the card, and the coordinator, the routers and the end devices show up by themselves, with the devices that need attention first.
+The cards read the network straight from ZHA (the same data as its network visualization) or from the MQTT topics of Zigbee2MQTT: add the card, and the coordinator, the routers and the end devices show up by themselves, with the devices that need attention first.
 
 [![Open your Home Assistant instance and open a repository inside the Marketplace.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=juju35&repository=ha-zigbee-card&category=plugin)
 
@@ -25,7 +25,8 @@ The cards read the network straight from ZHA, the same data as its network visua
 
 - Two cards: a full **Zigbee Card** and a compact **Zigbee Mini Card**, of type `custom:zigbee-card` and `custom:zigbee-mini-card`
 - An illustrated, animated banner as header (90 px, on the full and the mini card): an amber gradient, a house with the Zigbee coordinator in its middle and its devices around it (bulb, plug, thermometer, motion sensor, lock, blind), packets running along their links and dots along the mesh strip at the bottom. It follows the network: all well, a **weak link** (amber, dashed) when a device needs attention, a **device offline** (red, blinking, its link lost). The round Zigbee icon takes the status colour: green, amber or red. A night look with the dark theme of Home Assistant (day with a light one); motion stops with *reduce motion*
-- The header shows the network's name with « ZHA · Channel 15 · 42 devices » (Devices tab) or « 42 devices · 14 routers » (Map tab)
+- **ZHA or Zigbee2MQTT**, picked by itself (ZHA when it is loaded, else Zigbee2MQTT when MQTT is) or set with `integration`; several Zigbee2MQTT instances through their `base_topic`
+- The header shows the network's name with « ZHA · Channel 15 · 42 devices » (or « Zigbee2MQTT · Channel 15 · 42 devices ») (Devices tab) or « 42 devices · 14 routers » (Map tab)
 - **Devices** and **Map** text tabs right under the banner
 - **Devices** tab: status chips (« 41 / 42 online », « 1 offline », « 1 low battery », and when the network was read), the filters **All**, **Routers**, **End devices** and **Attention** with their counts, and a two-column grid of tiles, one per device: its icon (from its main entity), its name, a state line such as « Router · LQI 230 », « LQI 156 · battery 82% », « Offline · 3 h », « Weak signal · LQI 61 » or « Battery 12% », four signal bars from the LQI and a status dot
 - Healthy tiles stay neutral (grey icon, grey state line); only an issue brings colour: amber for a weak signal or a low battery, red for a device offline
@@ -43,13 +44,13 @@ The cards read the network straight from ZHA, the same data as its network visua
 | Integration | What the cards show |
 |---|---|
 | [ZHA](https://www.home-assistant.io/integrations/zha/) (Zigbee Home Automation, built into Home Assistant) | The devices of `zha/devices` (type, LQI, RSSI, availability, last seen, power source, neighbor tables) and the channel and PAN id of `zha/network/settings`; the battery of each device from its battery sensor. Tested with a Home Assistant Connect ZBT-2 coordinator |
-| [Zigbee2MQTT](https://www.zigbee2mqtt.io/) | Not supported yet |
+| [Zigbee2MQTT](https://www.zigbee2mqtt.io/) (through the [MQTT integration](https://www.home-assistant.io/integrations/mqtt/)) | The devices of `<base_topic>/bridge/devices` (type, power source, model, network address), the channel and PAN id of `bridge/info`, the availability of `<device>/availability`, the link quality and last seen of the devices' states (or their `linkquality` sensor), and the neighbor tables of a raw network map (`bridge/request/networkmap`, every `networkmap_interval`); the battery, area and device page from the Home Assistant device |
 
 ## Prerequisites
 
 - Home Assistant 2024.8 or later
-- The [ZHA integration](https://www.home-assistant.io/integrations/zha/), with its coordinator
-- An **administrator** account: ZHA only gives its network to administrators; for other users the card says so
+- The [ZHA integration](https://www.home-assistant.io/integrations/zha/) with its coordinator, or [Zigbee2MQTT](https://www.zigbee2mqtt.io/) with the [MQTT integration](https://www.home-assistant.io/integrations/mqtt/) (its Home Assistant discovery on)
+- An **administrator** account: ZHA only gives its network to administrators, and Home Assistant only lets administrators listen to MQTT topics; for other users the card says so
 
 ## Installation
 
@@ -83,7 +84,7 @@ The Marketplace registers the dashboard resource for you (`/local/community/ha-z
 
 ### Visual editor
 
-Edit a dashboard, click **Add card** and search for **Zigbee Card** or **Zigbee Mini Card**. Set the title, the default tab and filter, the thresholds, the number of tiles, the refresh interval, the illustration and the language. The preview updates live, and options left at their default are kept out of the generated YAML. The mini card's editor also has the full card's options, used by its unfolded view.
+Edit a dashboard, click **Add card** and search for **Zigbee Card** or **Zigbee Mini Card**. Set the title, the integration (and for Zigbee2MQTT its base topic and network map scan), the default tab and filter, the thresholds, the number of tiles, the refresh interval, the illustration and the language. The preview updates live, and options left at their default are kept out of the generated YAML. The mini card's editor also has the full card's options, used by its unfolded view.
 
 ### Minimal
 
@@ -100,6 +101,7 @@ type: custom:zigbee-mini-card
 ```yaml
 type: custom:zigbee-card
 title: Zigbee network
+integration: auto
 default_tab: devices
 default_filter: all
 weak_lqi: 80
@@ -115,6 +117,15 @@ exclude:
 language: en
 ```
 
+Zigbee2MQTT, with a base topic other than `zigbee2mqtt`:
+
+```yaml
+type: custom:zigbee-card
+integration: zigbee2mqtt
+base_topic: zigbee2mqtt-garage
+networkmap_interval: 7200
+```
+
 ```yaml
 type: custom:zigbee-mini-card
 mini_layout: bar
@@ -127,12 +138,15 @@ zoom: true
 | Option | Card | Default | Description |
 |---|---|---|---|
 | `title` | both | `Zigbee network` (mini: `Zigbee`) | Card title |
+| `integration` | both | `auto` | `zha`, `zigbee2mqtt`, or `auto`: ZHA when it is loaded, else Zigbee2MQTT when MQTT is |
+| `base_topic` | both | `zigbee2mqtt` | Zigbee2MQTT only: the base topic of its MQTT messages |
+| `networkmap_interval` | both | `3600` | Zigbee2MQTT only: seconds between two raw network map scans (300 at least), the first when the card loads; `0` never asks one (a scan asked elsewhere, by the Zigbee2MQTT frontend, is still used). Without a map, every device hangs from the coordinator |
 | `default_tab` | both | `devices` | Tab shown first: `devices` or `map`; on the mini card, in its unfolded view |
 | `default_filter` | both | `all` | Filter of the Devices tab shown first: `all`, `routers`, `end_devices` or `attention` |
 | `weak_lqi` | both | `80` | A device whose LQI is below this has a weak signal |
 | `low_battery` | both | `20` | A device whose battery is at or below this percentage has a low battery |
 | `max_devices` | both | `12` | Tiles shown before the « Show all » row; `0` shows every device |
-| `refresh_interval` | both | `60` | Seconds between two reads of the network (10 at least) |
+| `refresh_interval` | both | `60` | ZHA only: seconds between two reads of the network (10 at least); Zigbee2MQTT updates live |
 | `show_status` | both | `true` | The status chips under the tabs |
 | `illustration` | both | `true` | The animated banner as header (full and mini card); `false` for a classic header with a round icon |
 | `illustration_theme` | both | `auto` | `auto` (follows the Home Assistant theme: night with a dark theme, day with a light theme), `day` or `night` |
@@ -198,6 +212,13 @@ The popup of a device, at the top of the card:
 |---|---|
 | <img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/screenshots/card-detail.png" alt="device popup" width="400"> | <img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/screenshots/card-detail-dark.png" alt="device popup, dark theme" width="400"> |
 
+On **Zigbee2MQTT** (`integration: zigbee2mqtt`, or automatic without ZHA), here with `max_devices: 8`:
+
+| Light | Dark |
+|---|---|
+| <img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/screenshots/card-z2m.png" alt="Zigbee2MQTT, devices tab" width="400"> | <img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/screenshots/card-z2m-dark.png" alt="Zigbee2MQTT, devices tab, dark theme" width="400"> |
+| <img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/screenshots/card-z2m-map.png" alt="Zigbee2MQTT, map tab" width="400"> | <img src="https://raw.githubusercontent.com/juju35/ha-zigbee-card/main/screenshots/card-z2m-map-dark.png" alt="Zigbee2MQTT, map tab, dark theme" width="400"> |
+
 Night banner (`illustration_theme: night`, or automatic with a dark theme):
 
 | Light | Dark |
@@ -230,6 +251,8 @@ Unfolded with its zoom button (click it again or anywhere outside the card to go
 ### Data
 
 The cards call the ZHA websocket API: `zha/devices` for the devices (`device_type` Coordinator, Router or EndDevice, `lqi`, `rssi`, `available`, `last_seen`, `power_source`, `ieee`, `nwk`, `neighbors`, `entities`, `user_given_name`, `area_id`, `device_reg_id`) and `zha/network/settings` for the channel and the PAN id. One read serves every card of the page; it is made again every `refresh_interval` seconds. The battery of a device comes from its battery sensor (a percentage, or a low-battery binary sensor), its icon from its main entity (a light, a plug, a motion or door sensor…).
+
+With Zigbee2MQTT, the cards listen to `<base_topic>/#` through Home Assistant's `mqtt/subscribe` (one subscription for every card of the page, closed a minute after the last card leaves): the retained `bridge/devices` (`type`, `ieee_address`, `friendly_name`, `network_address`, `power_source`, `definition`), `bridge/info` (channel, PAN id, coordinator), `<device>/availability`, and the devices' states for their `linkquality` and `last_seen` (or the `linkquality` sensor). The neighbor tables come from a raw network map, asked by publishing `{"type":"raw","routes":false}` to `bridge/request/networkmap` when the card loads and then every `networkmap_interval`, and read from `bridge/response/networkmap`. Each device is matched to its Home Assistant device by its `zigbee2mqtt_<ieee>` identifier, for its battery, icon, area and device page. The cards update live, at most once a second.
 
 ### Status
 

@@ -66,6 +66,8 @@ export const load = (names) => {
     CSS: { escape: (s) => String(s) },
     setInterval: () => 0,
     clearInterval() {},
+    setTimeout,
+    clearTimeout,
     Intl,
     Date,
     Promise,
