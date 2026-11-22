@@ -2031,7 +2031,7 @@ for (const card of [
   { type: "zigbee-mini-card", name: "Zigbee Mini Card", description: "The health of the Zigbee network (ZHA or Zigbee2MQTT) in one line, with a zoom button to the full card." },
 ]) {
   if (!window.customCards.some((c) => c.type === card.type))
-    window.customCards.push({ ...card, preview: true, documentationURL: "https://github.com/juju35/ha-zigbee-card" });
+    window.customCards.push({ ...card, preview: false, documentationURL: "https://github.com/juju35/ha-zigbee-card" });
 }
 
 console.info(`%c ZIGBEE-CARD %c v${VERSION} `, "color: white; background: #b07a00; font-weight: 700;", "color: #b07a00; background: white; font-weight: 700;");
