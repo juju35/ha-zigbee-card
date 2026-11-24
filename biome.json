@@ -16,7 +16,7 @@
   "javascript": { "globals": ["customElements", "HTMLElement", "hass"] },
   "overrides": [
     {
-      "includes": ["src/strings.js"],
+      "includes": ["src/strings/**"],
       "linter": { "rules": { "correctness": { "noUnusedVariables": "off" } } }
     }
   ]

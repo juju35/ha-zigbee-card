@@ -7,8 +7,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { after, before, test } from "node:test";
 import { mockHass, NOW } from "../scripts/screenshots/mock.mjs";
+import { sources } from "./source.mjs";
 
-const read = (name) => readFileSync(new URL(`../src/${name}.js`, import.meta.url), "utf8");
+const read = (name) => (sources[`${name}.js`] ?? readFileSync(new URL(`../src/${name}.js`, import.meta.url), "utf8"));
 const src = `{\n${read("strings")}\n${read("zigbee-card")}\n}`;
 const HA_CARD = `customElements.define("ha-card", class extends HTMLElement { constructor() { super();
   this.attachShadow({ mode: "open" }).innerHTML = "<style>:host{display:block;overflow:hidden;background:var(--card-background-color);color:var(--primary-text-color)}</style><slot></slot>"; } });

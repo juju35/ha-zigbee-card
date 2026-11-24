@@ -1,9 +1,10 @@
-// Test loader: evaluates the card sources (src/strings.js then src/zigbee-card.js, in one block as the build does)
+// Test loader: evaluates the card sources (the bundled card source (test/source.mjs) then the bundled card source (test/source.mjs), in one block as the build does)
 // in an isolated context with minimal browser stubs, and returns the requested bindings. The bundle is unchanged.
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import { sources } from "./source.mjs";
 
-const read = (name) => readFileSync(new URL(`../src/${name}.js`, import.meta.url), "utf8");
+const read = (name) => (sources[`${name}.js`] ?? readFileSync(new URL(`../src/${name}.js`, import.meta.url), "utf8"));
 
 // `extra`: bindings that replace the stubs (fake timers…).
 export const load = (names, extra = {}) => {
