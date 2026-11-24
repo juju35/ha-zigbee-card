@@ -7,8 +7,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { after, before, test } from "node:test";
 import { mockHass, NOW } from "../scripts/screenshots/mock.mjs";
+import { sources } from "./source.mjs";
 
-const read = (name) => readFileSync(new URL(`../src/${name}.js`, import.meta.url), "utf8");
+const read = (name) => (sources[`${name}.js`] ?? readFileSync(new URL(`../src/${name}.js`, import.meta.url), "utf8"));
 const src = `{\n${read("strings")}\n${read("zigbee-card")}\n}`;
 const THEMES = {
   light: { "--card-background-color": "#fff", "--secondary-background-color": "#f1f1f1", "--primary-text-color": "#212121", "--secondary-text-color": "#727272" },
