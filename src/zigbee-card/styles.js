@@ -122,7 +122,7 @@ export const STYLE = `
   .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 10px 12px 12px; }
   @container (max-width: 300px) { .grid { grid-template-columns: minmax(0, 1fr); } }
   .tile { all: unset; position: relative; box-sizing: border-box; cursor: pointer; min-width: 0; min-height: 56px;
-          display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 8px; border-radius: 12px;
+          display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 8px; border-radius: 10px;
           --t: var(--zb-idle); background: var(--secondary-background-color, #f1f1f1); transition: background .2s; }
   .tile.warn { --t: var(--zb-warn); } .tile.alert { --t: var(--zb-alert); }
   .tile:hover { background: color-mix(in srgb, var(--t) 10%, var(--secondary-background-color, #f1f1f1)); }
